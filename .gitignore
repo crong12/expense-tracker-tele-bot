@@ -1,0 +1,11 @@
+# ignore environment variables and secret keys
+.env
+
+# ignore dependencies 
+.venv/
+
+# ignore compiled Python files
+__pycache__/
+
+# ignore scratch notebook
+scratch.ipynb
