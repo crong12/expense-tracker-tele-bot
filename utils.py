@@ -1,12 +1,14 @@
 import json
+import csv
 from dotenv import load_dotenv
 import os
 import uuid
 from google.cloud.sql.connector import Connector
-from sqlalchemy import create_engine, Column, UUID, BigInteger, String, Integer, ForeignKey, Numeric, Date
+from sqlalchemy import create_engine, Column, UUID, BigInteger, String, Integer, ForeignKey, Numeric, Date, select
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+#---------------------------------------------------------------------------------------------------
 
 def str_to_json(text: str):
     try:
@@ -16,18 +18,6 @@ def str_to_json(text: str):
     except json.JSONDecodeError:
         return ("error: Failed to parse response as JSON")
     
-
-# def access_secret(secret_name):
-#     """Retrieve secret value from Google Secret Manager."""
-#     project_id = os.getenv("GCP_PROJECT_ID")  
-#     client = secretmanager.SecretManagerServiceClient()
-
-#     secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-#     response = client.access_secret_version(request={"name": secret_path})
-
-#     return response.payload.data.decode("UTF-8")
-
-'''database connection'''
 
 # load database credentials from environment variables
 load_dotenv()
@@ -52,7 +42,7 @@ def get_connection():
     )
     return conn
 
-# create connection pool with 'creator' argument to our connection object function
+# create connection pool 
 pool = create_engine(
     "postgresql+pg8000://",
     creator=get_connection,
@@ -60,7 +50,7 @@ pool = create_engine(
   
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=pool)
 
-# users table
+# create users table class
 Base = declarative_base()
 class Users(Base):
     __tablename__ = "users"
@@ -69,7 +59,7 @@ class Users(Base):
     
 
 def get_or_create_user(telegram_id):
-    """Check if a user exists in the database; if not, create a new one."""
+    """check if a user exists in the database; if not, create a new one"""
     session = SessionLocal()
 
     try:
@@ -92,7 +82,7 @@ def get_or_create_user(telegram_id):
     finally:
         session.close()  # connection is returned to the pool
 
-# expenses table
+# create expenses table class
 class Expenses(Base):
     __tablename__ = "expenses"
 
@@ -122,5 +112,44 @@ def insert_expense(user_id, price, category, description, date, currency):
     except Exception as e:
         print(f"Database error: {e}")
         session.rollback()
+    finally:
+        session.close()
+        
+def export_expenses_to_csv(user_id, tele_handle):
+    """export user's expenses to CSV"""
+    session = SessionLocal()
+    file_path = f"expenses_{tele_handle}.csv"  # name the file based on user's telegram handle
+
+    try:
+        # only query rows that belong to the user
+        result = session.execute(select(Expenses).where(Expenses.user_id == user_id))
+        relevant_expenses = result.scalars().all()
+
+        if not relevant_expenses:      # no expenses found
+            return None
+
+        # CSV column headers
+        fieldnames = ["Date", "Description", "Category", "Price", "Currency"]
+
+        # write data to CSV file
+        with open(file_path, mode="w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for expense in relevant_expenses:
+                writer.writerow({
+                    "Date": expense.date,
+                    "Description": expense.description,
+                    "Category": expense.category,
+                    "Price": float(expense.price),
+                    "Currency": expense.currency
+                })
+
+        return file_path  # Return the generated file path
+
+    except Exception as e:
+        print(f"Error exporting expenses: {e}")
+        return None
+
     finally:
         session.close()

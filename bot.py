@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, ContextTypes, ConversationHandler, CallbackQueryHandler
 from gemini_integration import process_expense_text, refine_expense_details
-from utils import str_to_json, get_or_create_user, insert_expense
+from utils import str_to_json, get_or_create_user, insert_expense, export_expenses_to_csv
 
 load_dotenv()
 BOT_TOKEN = os.getenv("TELE_BOT_TOKEN")
@@ -24,6 +24,7 @@ reply_markup = InlineKeyboardMarkup(keyboard)
 # set conversation states
 WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT = range(3)
 
+#-------------------------------------------------------------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """bot initialisation; create start menu for user input"""
@@ -55,7 +56,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_FOR_EXPENSE
     
     elif query.data == "export_expenses":
-        await query.message.reply_text("Feature in progress; not yet available 😔")
+        await export_expenses(update, context)
     
     elif query.data == "quit":
         await query.message.reply_text("Goodbye! Type /start if you need me again.")
@@ -65,7 +66,12 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def process_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """handle initial expense text processing"""
     user_input = update.message.text
-    response = await process_expense_text(user_input)  # call LLM for expense parsing
+    
+    # handle case whereby user wants to go back to main menu instead of inputting another expense
+    if user_input == "/start":
+        return await start(update, context)
+    
+    response = await process_expense_text(user_input)  # call gemini for expense parsing
     json_response = str_to_json(response)
     context.user_data['parsed_expense'] = json_response  # store initial response
     
@@ -145,10 +151,28 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def reject_unexpected_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reject messages if conversation is not active"""
+    """reject messages if conversation is not active"""
     await update.message.reply_text("Please type /start to begin.")
 
 
+async def export_expenses(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """handles export command and sends CSV file to user"""
+    telegram_id = update.effective_user.id
+    tele_handle = update.effective_user.username
+    user_id = get_or_create_user(telegram_id)  # retrieve user's UUID
+
+    file_path = export_expenses_to_csv(user_id, tele_handle)
+
+    if file_path:
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=open(file_path, "rb"),
+            filename=os.path.basename(file_path),
+            caption="Sure, here's a list of your expenses 📊"
+        )
+        os.remove(file_path)  # delete file after sending to protect user's privacy
+    else:
+        await update.message.reply_text("No expenses found to export 😔")
 
 if __name__ == '__main__':
     app = Application.builder().token(BOT_TOKEN).build()
