@@ -1,14 +1,12 @@
-from dotenv import load_dotenv
-import os
 import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig
-from datetime import datetime
 from tenacity import retry, wait_random_exponential
+from datetime import datetime
+from config import PROJECT_ID, REGION, MODEL_NAME, TEMPERATURE
 
-load_dotenv()
-PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-LOCATION = os.getenv("REGION")
-vertexai.init(project=PROJECT_ID, location=LOCATION)
+vertexai.init(project=PROJECT_ID, location=REGION)
+
+model = GenerativeModel(MODEL_NAME)
 
 expense_schema = {
         "type": "OBJECT",
@@ -21,16 +19,13 @@ expense_schema = {
         },
 }
 
-expense_config = GenerationConfig(temperature=0.2,
+expense_config = GenerationConfig(temperature=TEMPERATURE,
                                   response_mime_type="application/json",
                                   response_schema=expense_schema)
-
-model = GenerativeModel("gemini-1.5-flash-002")
 
 # to convert relative date into actual date
 today = datetime.today().strftime("%Y-%m-%d")
 day = datetime.today().strftime("%A")
-
 
 # function to call gemini to process expense text
 # implement exponential backoff for load handling
@@ -57,7 +52,6 @@ async def process_expense_text(input_text: str):
         contents=prompt, generation_config=expense_config
     )
     return response.text
-
 
 # function to refine extracted expense details
 # implement exponential backoff for load handling
