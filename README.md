@@ -81,10 +81,13 @@ Down the line, I will be adding more functionality to the bot, such as multimoda
 
 ### Built With
 
+- [![Docker][docker-shield]][docker-url]
+- [![FastAPI][fast-api-shield]][fast-api-url]
 - [![Google Cloud][gcp-shield]][gcp-url]
-- [![PostgreSQL][Postgresql.org]][Postgresql-url]
-- [![Python][Python.org]][Python-url]
-- [![Telegram bot API][tele-bot.org]][tele-bot-url]
+- [![PostgreSQL][Postgresql-shield]][Postgresql-url]
+- [![Python][Python-shield]][Python-url]
+- [![Telegram bot API][tele-bot-shield]][tele-bot-url]
+
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -94,21 +97,23 @@ Down the line, I will be adding more functionality to the bot, such as multimoda
 
 ```
 expense-tracker-tele-bot/
-│── main.py                  # Main entry point for the bot
+│── main.py                  # Main script
 │── config.py                # Config settings
 │── database.py              # Database connection and ORM classes
-│── utils.py                 # Miscellaneous utility functions
+│── utils.py                 # Miscellaneous util functions
 │── handlers/                # Folder containing bot handler functions
 │   ├── __init__.py       
 │   ├── misc_handlers.py            
 │   ├── expenses_handler.py         
 │   └── export.py         
 │── services/                # Folder containing other key functions
-│   ├── __init__.py      
+│   ├── __init__.py          # (e.g. for LLM integration)
 │   ├── gemini_svc.py     
 │   └── expenses_svc.py    
 │── requirements.txt         # Dependencies
-│── .env                     # Environment variables (not committed)
+│── Dockerfile               # For deployment
+│── .dockerignore            
+│── .gitignore
 │── images/                  # Folder containing demo screenshots
 │── LICENSE                  # MIT license file
 └── README.md                # Project description
@@ -119,6 +124,8 @@ expense-tracker-tele-bot/
 
 <!-- GETTING STARTED -->
 ## Getting Started
+
+INSTALLATION STEPS STILL WIP.
 
 To try this bot for yourself, follow these steps.
 
@@ -134,8 +141,7 @@ To try this bot for yourself, follow these steps.
 
 ### Installation
 
-1. Get a Telegram bot API token (refer to [this tutorial](https://core.telegram.org/bots/tutorial)).
-2. Clone this repo
+1. Clone this repo
    ```sh
    git clone https://github.com/crong12/expense-tracker-tele-bot.git
    ```
@@ -268,11 +274,15 @@ Distributed under the [MIT license](LICENSE).
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
 [demo-screenshot1]: images/demo_ss1.png
-[Python.org]: https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54
+[Python-shield]: https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54
 [Python-url]: https://www.python.org/
-[Postgresql.org]: https://img.shields.io/badge/postgresql-4169e1?style=for-the-badge&logo=postgresql&logoColor=white
+[Postgresql-shield]: https://img.shields.io/badge/postgresql-4169e1?style=for-the-badge&logo=postgresql&logoColor=white
 [Postgresql-url]: https://www.postgresql.org/
-[tele-bot.org]: https://img.shields.io/badge/telegram%20bot%20api-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white
+[tele-bot-shield]: https://img.shields.io/badge/telegram%20bot%20api-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white
 [tele-bot-url]: https://core.telegram.org/bots/api
-[gcp-shield]: https://img.shields.io/badge/Google%20Cloud-4285F4?&style=for-the-badge&logo=Google%20Cloud&logoColor=white
+[gcp-shield]: https://img.shields.io/badge/Google%20Cloud-FFFFFF?style=for-the-badge&logo=data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCEtLSBVcGxvYWRlZCB0bzogU1ZHIFJlcG8sIHd3dy5zdmdyZXBvLmNvbSwgR2VuZXJhdG9yOiBTVkcgUmVwbyBNaXhlciBUb29scyAtLT4KPHN2ZyB3aWR0aD0iODAwcHgiIGhlaWdodD0iODAwcHgiIHZpZXdCb3g9IjAgLTI1IDI1NiAyNTYiIHZlcnNpb249IjEuMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgcHJlc2VydmVBc3BlY3RSYXRpbz0ieE1pZFlNaWQiPgoJCTxnPgoJCQkJPHBhdGggZD0iTTE3MC4yNTE3LDU2LjgxODYgTDE5Mi41MDQ3LDM0LjU2NTYgTDE5My45ODc3LDI1LjE5NTYgQzE1My40MzY3LC0xMS42Nzc0IDg4Ljk3NTcsLTcuNDk2NCA1Mi40MjA3LDMzLjkxOTYgQzQyLjI2NjcsNDUuNDIyNiAzNC43MzM3LDU5Ljc2MzYgMzAuNzE2Nyw3NC41NzI2IEwzOC42ODY3LDczLjQ0OTYgTDgzLjE5MTcsNjYuMTEwNiBMODYuNjI3Nyw2Mi41OTY2IEMxMDYuNDI0Nyw0MC44NTQ2IDEzOS44OTc3LDM3LjkyOTYgMTYyLjc1NTcsNTYuNDI4NiBMMTcwLjI1MTcsNTYuODE4NiBaIiBmaWxsPSIjRUE0MzM1Ij4KDTwvcGF0aD4KCQkJCTxwYXRoIGQ9Ik0yMjQuMjA0OCw3My45MTgyIEMyMTkuMDg5OCw1NS4wODIyIDIwOC41ODg4LDM4LjE0OTIgMTkzLjk4NzgsMjUuMTk2MiBMMTYyLjc1NTgsNTYuNDI4MiBDMTc1Ljk0MzgsNjcuMjA0MiAxODMuNDU2OCw4My40MzgyIDE4My4xMzQ4LDEwMC40NjUyIEwxODMuMTM0OCwxMDYuMDA5MiBDMTk4LjQ4NTgsMTA2LjAwOTIgMjEwLjkzMTgsMTE4LjQ1NDIgMjEwLjkzMTgsMTMzLjgwNTIgQzIxMC45MzE4LDE0OS4xNTcyIDE5OC40ODU4LDE2MS4yOTAyIDE4My4xMzQ4LDE2MS4yOTAyIEwxMjcuNDYzOCwxNjEuMjkwMiBMMTIxLjk5NzgsMTY3LjIyNDIgTDEyMS45OTc4LDIwMC41NjQyIEwxMjcuNDYzOCwyMDUuNzk1MiBMMTgzLjEzNDgsMjA1Ljc5NTIgQzIyMy4wNjQ4LDIwNi4xMDYyIDI1NS42ODY4LDE3NC4zMDEyIDI1NS45OTc4LDEzNC4zNzEyIEMyNTYuMTg1OCwxMTAuMTY4MiAyNDQuMjUyOCw4Ny40NzgyIDIyNC4yMDQ4LDczLjkxODIiIGZpbGw9IiM0Mjg1RjQiPgoNPC9wYXRoPgoJCQkJPHBhdGggZD0iTTcxLjg3MDQsMjA1Ljc5NTcgTDEyNy40NjM0LDIwNS43OTU3IEwxMjcuNDYzNCwxNjEuMjg5NyBMNzEuODcwNCwxNjEuMjg5NyBDNjcuOTA5NCwxNjEuMjg4NyA2NC4wNzM0LDE2MC40Mzc3IDYwLjQ3MTQsMTU4Ljc5MTcgTDUyLjU4NDQsMTYxLjIxMTcgTDMwLjE3NTQsMTgzLjQ2NDcgTDI4LjIyMzQsMTkxLjAzODcgQzQwLjc5MDQsMjAwLjUyNzcgNTYuMTIzNCwyMDUuODYzNyA3MS44NzA0LDIwNS43OTU3IiBmaWxsPSIjMzRBODUzIj4KDTwvcGF0aD4KCQkJCTxwYXRoIGQ9Ik03MS44NzA0LDYxLjQyNTUgQzMxLjkzOTQsNjEuNjYzNSAtMC4yMzY2LDk0LjIyNzUgMC4wMDE0LDEzNC4xNTc1IEMwLjEzNDQsMTU2LjQ1NTUgMTAuNTQ4NCwxNzcuNDQ1NSAyOC4yMjM0LDE5MS4wMzg1IEw2MC40NzE0LDE1OC43OTE1IEM0Ni40ODA0LDE1Mi40NzA1IDQwLjI2MzQsMTM2LjAwNTUgNDYuNTg0NCwxMjIuMDE1NSBDNTIuOTA0NCwxMDguMDI1NSA2OS4zNzA0LDEwMS44MDg1IDgzLjM1OTQsMTA4LjEyODUgQzg5LjUyNDQsMTEwLjkxMzUgOTQuNDYxNCwxMTUuODUxNSA5Ny4yNDY0LDEyMi4wMTU1IEwxMjkuNDk0NCw4OS43Njg1IEMxMTUuNzczNCw3MS44MzE1IDk0LjQ1MzQsNjEuMzQ0NSA3MS44NzA0LDYxLjQyNTUiIGZpbGw9IiNGQkJDMDUiPgoNPC9wYXRoPgoJCTwvZz4KPC9zdmc+
 [gcp-url]: https://console.cloud.google.com/
+[docker-shield]: https://img.shields.io/badge/docker-257bd6?style=for-the-badge&logo=docker&logoColor=white
+[docker-url]: https://www.docker.com/
+[fast-api-shield]: https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi
+[fast-api-url]: https://fastapi.tiangolo.com/
