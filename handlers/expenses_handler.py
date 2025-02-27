@@ -1,6 +1,6 @@
+import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-import logging
 from handlers import start
 from services.gemini_svc import process_expense_text, refine_expense_details
 from services.expenses_svc import insert_expense, get_or_create_user
@@ -66,7 +66,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 currency=parsed_expense['currency']
             )
             await context.bot.send_message(chat_id,"✅ Your expense has been recorded successfully!")
-            await context.bot.send_message(chat_id, "Would you like to add another expense? Type it below or send /start to go back to the main menu.") 
+            await context.bot.send_message(chat_id, "Would you like to add another expense? Type it below or send /start to go back to the main menu.")
 
         else:
             await context.bot.send_message(chat_id,"⚠️ There was an issue processing your expense. Please try again.")

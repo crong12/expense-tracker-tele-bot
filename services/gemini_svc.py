@@ -1,7 +1,7 @@
+from datetime import datetime
 import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 from tenacity import retry, wait_random_exponential
-from datetime import datetime
 from config import PROJECT_ID, REGION, MODEL_NAME, TEMPERATURE
 
 vertexai.init(project=PROJECT_ID, location=REGION)

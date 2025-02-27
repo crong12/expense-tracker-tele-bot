@@ -9,6 +9,7 @@ def get_project_id():
 PROJECT_ID = get_project_id()  # Use this instead of hardcoding it
 
 def get_secret(secret_name):
+    """function to retrieve secret from google secret manager"""
     client = secretmanager.SecretManagerServiceClient()
     name = f"projects/{PROJECT_ID}/secrets/{secret_name}/versions/latest"
     response = client.access_secret_version(request={"name": name})
