@@ -1,23 +1,30 @@
-import os
-from dotenv import load_dotenv
+from google.cloud import secretmanager
+import google.auth
 
-# Load environment variables
-load_dotenv()
+def get_project_id():
+    """Automatically retrieves the Google Cloud Project ID."""
+    _, project = google.auth.default()
+    return project
 
-# Telegram Bot Token
-BOT_TOKEN = os.getenv("TELE_BOT_TOKEN")
+PROJECT_ID = get_project_id()  # Use this instead of hardcoding it
 
-# Google Cloud Project Config
-PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-REGION = os.getenv("REGION")
+def get_secret(secret_name):
+    client = secretmanager.SecretManagerServiceClient()
+    name = f"projects/{PROJECT_ID}/secrets/{secret_name}/versions/latest"
+    response = client.access_secret_version(request={"name": name})
+    return response.payload.data.decode("UTF-8").strip()
 
-# Database Config
-INSTANCE_NAME = os.getenv("INSTANCE_NAME")
+BOT_TOKEN = get_secret("TELE_BOT_TOKEN")
+REGION = get_secret("REGION")
+INSTANCE_NAME = get_secret("INSTANCE_NAME")
+DB_USER = get_secret("DB_USER")
+DB_PASSWORD = get_secret("DB_PASSWORD")
+DB_NAME = get_secret("DB_NAME")
 INSTANCE_CONNECTION_NAME = f"{PROJECT_ID}:{REGION}:{INSTANCE_NAME}"
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_NAME = os.getenv("DB_NAME")
 
 # Gemini Model Config
 MODEL_NAME = "gemini-1.5-flash-002"
 TEMPERATURE = 0.2
+
+# Conversation states
+WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT = range(3)

@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
-from services.expenses_svc import get_or_create_user
+from services import get_or_create_user
+from config import WAITING_FOR_EXPENSE
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """bot initialisation; create start menu for user input"""
@@ -25,3 +26,28 @@ async def quit_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /quit command and ends the conversation."""
     await update.message.reply_text("Goodbye! Type /start if you need me again.")
     return ConversationHandler.END
+
+async def reject_unexpected_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rejects messages when no active conversation is happening."""
+    await update.message.reply_text("Please type /start to begin.")
+
+async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """handle button response from start menu"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except RuntimeError as e:
+        print(f"Warning: {e} (Ignoring safely)")
+
+    if query.data == "insert_expense":
+        await query.message.reply_text("Sure, what did you spend on?")
+        return WAITING_FOR_EXPENSE
+
+    elif query.data == "export_expenses":
+        from handlers.export import export_expenses
+        await export_expenses(update, context)
+        return ConversationHandler.END
+
+    elif query.data == "quit":
+        await query.message.reply_text("Goodbye! Type /start if you need me again.")
+        return ConversationHandler.END

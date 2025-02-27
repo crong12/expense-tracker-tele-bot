@@ -1,12 +1,11 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+import logging
 from handlers import start
 from services.gemini_svc import process_expense_text, refine_expense_details
 from services.expenses_svc import insert_expense, get_or_create_user
 from utils import str_to_json
-
-# Define conversation states
-WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT = range(3)
+from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT
 
 # yes/no inline keyboard for user confirmation
 keyboard = [
@@ -17,7 +16,6 @@ reply_markup = InlineKeyboardMarkup(keyboard)
 
 async def process_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles expense text processing"""
-
     user_input = update.message.text
 
     # handle case whereby user wants to go back to main menu instead of inputting another expense
@@ -68,14 +66,13 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 currency=parsed_expense['currency']
             )
             await context.bot.send_message(chat_id,"✅ Your expense has been recorded successfully!")
-            await context.bot.send_message(chat_id, "Would you like to add another expense? Type it below or send /start to go back to the main menu.")
-            return WAITING_FOR_EXPENSE
+            await context.bot.send_message(chat_id, "Would you like to add another expense? Type it below or send /start to go back to the main menu.") 
 
         else:
             await context.bot.send_message(chat_id,"⚠️ There was an issue processing your expense. Please try again.")
 
+        logging.info("Transitioning to WAITING_FOR_EXPENSE")
         return WAITING_FOR_EXPENSE
-
 
     else:
         await context.bot.send_message(chat_id,"Sorry I got it wrong! What should the correct details be? Let me know, or type /quit to stop the recording.")
@@ -85,6 +82,11 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """handle user-provided corrections and refines the details"""
     user_feedback = update.message.text
+
+    # handle case whereby user wants to go back to main menu instead of inputting another expense
+    if user_feedback == "/start":
+        return await start(update, context)
+
     original_details = context.user_data.get('parsed_expense', '')
 
     refined_response = await refine_expense_details(original_details, user_feedback)

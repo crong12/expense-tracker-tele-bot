@@ -6,6 +6,3 @@
 
 # ignore compiled Python files
 __pycache__/
-
-# ignore scratch notebook
-scratch.ipynb
