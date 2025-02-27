@@ -125,8 +125,6 @@ expense-tracker-tele-bot/
 <!-- GETTING STARTED -->
 ## Getting Started
 
-INSTALLATION STEPS STILL WIP.
-
 To try this bot for yourself, follow these steps.
 
 ### Prerequisites
@@ -134,40 +132,96 @@ To try this bot for yourself, follow these steps.
 - Python 3.8+ (this was built with 3.11)
 - Google Cloud SQL instance (PostgreSQL)
   - For setting up a PostgreSQL database using Google Cloud SQL, I referred mainly to [this tutorial](https://cloud.google.com/sql/docs/postgres/connect-instance-cloud-shell).
-- Google Cloud Project with Vertex AI enabled
+- Google Cloud Project with Vertex AI and billing enabled 
   - To get started with Google Cloud Projects and Vertex AI, [this](https://cloud.google.com/vertex-ai/docs/start/cloud-environment) is a good starting point.
+- Google Cloud Secret Manager for storage of secret variables (API keys and such)
+  - Quickstart [here](https://cloud.google.com/secret-manager/docs/create-secret-quickstart).
 - Telegram Bot API Token
   - [This](https://core.telegram.org/bots/tutorial) is a comprehensive introduction to using Telegram bots.
+- Docker 
+- Google Cloud SDK
 
 ### Installation
 
-1. Clone this repo
+<br/>
+
+**1. Clone this repo**
    ```sh
    git clone https://github.com/crong12/expense-tracker-tele-bot.git
    ```
-3. Install dependencies
+
+<br/>
+
+**2. Set up Google Cloud Secrets**
    ```sh
-   pip install -r requirements.txt
+   # Create secrets
+   gcloud secrets create TELE_BOT_TOKEN --replication-policy="automatic"
+   gcloud secrets create REGION --replication-policy="automatic"
+   gcloud secrets create INSTANCE_NAME --replication-policy="automatic"
+   gcloud secrets create DB_USER --replication-policy="automatic"
+   gcloud secrets create DB_PASSWORD --replication-policy="automatic"
+   gcloud secrets create DB_NAME --replication-policy="automatic"
+
+   # Then add values
+   gcloud secrets versions add TELE_BOT_TOKEN --data-file=<(echo "your-telegram-bot-token")
+   gcloud secrets versions add REGION --data-file=<(echo "your-region")
+   gcloud secrets versions add INSTANCE_NAME --data-file=<(echo "your-cloud-sql-instance-name")
+   gcloud secrets versions add DB_USER --data-file=<(echo "your-db-user")
+   gcloud secrets versions add DB_PASSWORD --data-file=<(echo "your-db-password")
+   gcloud secrets versions add DB_NAME --data-file=<(echo "your-db-name")
    ```
-4. Set up environment variables in a `.env` file:
+
+  Or you could do it within the browser console as well if that's easier.
+
+<br/>
+
+**3. Enable necessary Google Cloud APIs**
    ```sh
-    TELE_BOT_TOKEN=your_telegram_bot_token
-    GCP_PROJECT_ID=your_google_cloud_project_id
-    REGION=your_region
-    INSTANCE_NAME=your_cloud_sql_instance_name
-    DB_USER=your_db_user
-    DB_PASSWORD=your_db_password
-    DB_NAME=your_database_name
-    DB_PORT=5432
+   gcloud services enable run.googleapis.com \
+    cloudbuild.googleapis.com \
+    sqladmin.googleapis.com \
+    secretmanager.googleapis.com \
+    aiplatform.googleapis.com
    ```
-5. Run the bot
+
+<br/>
+
+**4. Build and deploy bot to Google Cloud Run**  
+   4.1 Authenticate Docker with Google Cloud
    ```sh
-    python main.py
+   gcloud auth configure-docker your-region-docker.pkg.dev
    ```
-5. Change git remote url to avoid accidental pushes to base project
+   4.2 Build Docker image
+   ```sh
+   docker build -t your-region-docker.pkg.dev/your-project-id/your-repo/image-name .
+   ```
+   4.3 Push to Google Artifact Registry
+   ```sh
+   docker push your-region-docker.pkg.dev/your-project-id/your-repo/image-name
+   ```
+   4.4 Deploy to Google Cloud Run
+   ```sh
+   gcloud run deploy service-name \
+    --image=your-region-docker.pkg.dev/your-project-id/your-repo/image-name \
+    --region your-region \
+    --platform=managed \
+    --allow-unauthenticated \
+    --set-env-vars PORT=8080
+   ```
+
+<br/>
+
+**5. Set up webhook**
+   ```sh
+   curl -X POST "https://api.telegram.org/bot<your-bot-token>/setWebhook?url=<your-cloud-run-url>"
+   ```
+
+<br/>
+
+**6. Change git remote url to avoid accidental pushes to base project**
    ```sh
    git remote set-url origin github_username/repo_name
-   git remote -v # confirm the changes
+   git remote -v 
    ```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -184,14 +238,14 @@ Send **`/start`** to initialize the bot and open the main menu.
 
 Click **`📌 Insert Expense`**, then type an expense in plain text (e.g., "Spent $10 on coffee at Starbucks yesterday").
 
-The bot will extract details such as:
+The bot will extract the following details:
 - Currency
 - Amount
 - Category
 - Description
 - Date
 
-You will be asked to confirm or refine the details.
+The bot will prompt you to confirm or refine the details.
 
 ### **3️⃣ Confirm or Refine Expense Details**
 If correct, click **`✅ Yes`** to insert the expense into the database.
@@ -200,8 +254,6 @@ Otherwise, click **`❌ No`** and provide updated details for refinement.
 
 ### **4️⃣ Export Expenses**
 Click **`📊 Export Expenses`** to receive a CSV file of your past expenses.
-
-The bot will generate a file and send it to you via Telegram.
 
 ### **5️⃣ Quit the Bot**
 Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exit.
@@ -219,6 +271,8 @@ Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exi
 
 - Expense exportation to CSV
 
+<br/>
+
 ### **🚀 In the Pipeline**
 
 - **📷 Multimodal expense input:** Allow users to upload images of receipts or even speech-to-text, although the latter may be more of a stretch goal...
@@ -228,6 +282,9 @@ Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exi
 - **📊 LLM-powered analytics:** Generate insights based on user's request, such as category-based spending trends and monthly reports (e.g. "how much did I spend last month?")
 
 - **📆 Scheduled reminders:** Send scheduled messages to remind users to track expenses
+
+<br/>
+<br/>
 
 **Caveat:** I am extremely busy with my full-time MSc course and upcoming internship, so unfortunately these features may not come anytime soon. I do love working on this project (as I'll be using it personally as well), and will definitely work on implementing these features whenever I can.
 
@@ -241,7 +298,7 @@ As this is my first foray into working with LLMs and dev work, any contributions
 
 If you have a suggestion to improve the bot, be it functionality or even best practice advice, please fork the repo and create a pull request. You can also simply open an issue with the tag "enhancement".
 
-1. Fork the Project
+1. Fork the repo
 2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
 3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the Branch (`git push origin feature/AmazingFeature`)
