@@ -52,32 +52,32 @@ Expense tracking is something that we all know we should be doing, but unfortuna
 
 Personally, I am rather proud to say that I have been recording my expenses on a  daily basis for the past 6 years. However, I must admit that a lot of discipline was needed and it was definitely not easy to keep at it consistently, especially at the start. A survey of a few friends returned the following insights:
 
-- Many do recognise the benefits of tracking expenses, but found it difficult to cultivate the habit of doing so, and sticking to it &ndash; much like New Year's resolutions.
+- While many do recognise the benefits of tracking expenses, they found it difficult to stick to it &ndash; much like New Year's resolutions.
 
 - While expense tracking apps do exist, our phones are already filled with tens of apps. A new app will just be lost among the masses and does not actually make it easier to cultivate the habit of tracking expenses. Apps also tend to be money-grabbers and/or are filled with annoying ads.
 
-- Tracking expenses sounds easy, but can actually be a time-consuming process that may require a fair bit of cognitive load to insert the expenses correctly. This further adds to the inertia.
+- Tracking expenses sounds easy, but can actually be a time-consuming process that may require a fair bit of cognitive load to insert each expense correctly. This further adds to the inertia.
 
 Therefore, I created this Telegram bot as a personal project to further automate the process of expense tracking, and to hopefully alleviate some of the pain of doing so. 
 
 ### Why a Telegram bot?
 
-The obvious idea would be an app, but for reasons mentioned above, plus the fact that there are already many professionally created apps out there, I would not be able to value-add much.
+The obvious idea would be a standalone app, but for reasons mentioned above, plus the fact that there are already many professionally created apps out there, I doubt I'd be able to value-add much in that space.
 
 Telegram is a versatile messaging app that virtually everyone I know uses (I know WhatsApp still prevails in many other countries &ndash; hopefully this convinces some to switch to Telegram!). Thus, instead of yet another nameless app, why not leverage a platform that is already ubiquitous? Since we already have a deeply-ingrained habit of using Telegram on a daily &ndash; sometimes hourly &ndash; basis, I want to use this to leapfrog some of the inertia. 
 
-On a side note, it also eases the pain of frontend development and allows me to focus wholly on functionality, so that's a W.
+On a side note, it also eases the pain of frontend development and allows me to focus wholly on functionality, so that's a big W.
 
 ### How is this different from a regular app?
 
 Regular expense tracking apps require one to insert expense details into specified fields (e.g. amount spent, category, etc.). Just not very smart in general.
 
-I designed this bot to act as an "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed accordingly. This is possible due to the semantic understanding capabilities of LLMs (I use `Gemini 1.5 Flash` for this project).
+I designed this bot to act as an "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed accordingly. This is possible due to the semantic understanding capabilities of LLMs (I use `Gemini 1.5 Flash` for this project). By leveraging LLMs, the functionality of the bot has much room for growth (see: upcoming features in the [roadmap](#roadmap), the most exciting of which is the potential for LLM-powered expense analytics, enabling smarter insights for data-driven financial literacy. I'm also keen to explore agentic AI workflows, leveraging tool use to enable features such as live currency conversions and LLM-powered expense analytics. 
 
 ![Demo screenshot][demo-screenshot1]
 *Screenshot of an expense recording instance. The model is able to parse the category correctly, although it is possible to make changes if need be (for example, if you want `Supermarket` as a category instead of `Groceries`).*
 
-Down the line, I will be adding more functionality to the bot, such as multimodal input (e.g. receipt parsing or even speech input), and I'm keen to explore agentic AI workflows, leveraging tool use to enable features such as live currency conversions and LLM-powered expense analytics. 
+Unfortunately, while my bot is currently up and running, testing will only be open to a bunch of close friends as I only have that many Google Cloud credits 😔 However, I implore you to set the bot up for yourself (first-time Google Cloud users get a bunch of free credits anyway) and give it a try! 🚀
 
 ### Built With
 
@@ -275,6 +275,8 @@ Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exi
 
 ### **🚀 In the Pipeline**
 
+- **✨ QoL functionalities:** Allow users to edit and delete past expenses 
+
 - **📷 Multimodal expense input:** Allow users to upload images of receipts or even speech-to-text, although the latter may be more of a stretch goal...
 
 - **💱 Multi-Currency support:** Convert expenses into a preferred currency based on current exchange rates
@@ -286,7 +288,7 @@ Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exi
 <br/>
 <br/>
 
-**Caveat:** I am extremely busy with my full-time MSc course and upcoming internship, so unfortunately these features may not come anytime soon. I do love working on this project (as I'll be using it personally as well), and will definitely work on implementing these features whenever I can.
+**Caveat:** I am extremely busy with my full-time MSc course and upcoming internship, so unfortunately these features may not come anytime soon. I do love working on this project (as I'm using it personally as well), and will definitely work on implementing these features whenever I can.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
