@@ -109,7 +109,8 @@ expense-tracker-tele-bot/
 │── services/                # Folder containing other key functions
 │   ├── __init__.py          # (e.g. for LLM integration)
 │   ├── gemini_svc.py     
-│   └── expenses_svc.py    
+│   └── expenses_svc.py  
+│── feature_announcement.py  # Standalone script for broadcasting new features
 │── requirements.txt         # Dependencies
 │── Dockerfile               # For deployment
 │── .dockerignore            
@@ -265,7 +266,7 @@ Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exi
 ## Roadmap
 
 ### **✅ Completed Features**
-- LLM-powered expense processing
+- LLM-powered expense processing (adding and editing so far; deleting coming soon)
 
 - Google Cloud-based SQL database storage
 
