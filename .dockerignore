@@ -12,8 +12,5 @@ images/
 
 # ignore other misc files
 README.md
-
 LICENSE
-
-# for local testing and dev only
-main_local.py
+scratch.ipynb

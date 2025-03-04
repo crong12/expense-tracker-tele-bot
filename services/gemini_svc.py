@@ -42,10 +42,11 @@ async def process_expense_text(input_text: str):
     Extrapolate the expense date based on today's date.
     
     Make sure to include: 
-    CURRENCY (if unspecified, default is SGD. Assume that $ is SGD, not USD. Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB))
-    PRICE (return 2 decimal places AT ALL TIMES, even if an integer price is provided), 
-    CATEGORY (think about what it should be based on the item or place provided), 
-    DESCRIPTION (this can just be the place or store name, if specified. Output should be in Title Case), and 
+    CURRENCY (if unspecified, default is SGD. Assume that $ is SGD, not USD. Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB));
+    PRICE (return 2 DECIMAL PLACES AT ALL TIMES, even if an integer price is provided);
+    CATEGORY (think about what it should be based on the item or place provided);
+    DESCRIPTION (this can just be the place or store name, if specified. If a shop name is not specified or is unclear, be more detailed in the description, 
+    but make sure to only include whatever is already in the user input); 
     DATE (be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date).
     """
     response = await model.generate_content_async(

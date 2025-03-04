@@ -3,8 +3,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
-from handlers import start, process_text, button_click, reject_unexpected_messages, refine_details, handle_confirmation, quit_bot
-from config import BOT_TOKEN, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT
+from handlers import start, process_text, process_edit, button_click, reject_unexpected_messages, refine_details, handle_confirmation, quit_bot
+from config import BOT_TOKEN, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, AWAITING_EDIT
 
 # Set up logging
 logging.basicConfig(
@@ -19,15 +19,17 @@ bot_app = Application.builder().token(BOT_TOKEN).build()
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start), CallbackQueryHandler(button_click)],
     states={
-        WAITING_FOR_EXPENSE: [MessageHandler(filters.TEXT, process_text), CallbackQueryHandler(button_click)],
+        WAITING_FOR_EXPENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_text), CallbackQueryHandler(button_click)],
         AWAITING_CONFIRMATION: [CallbackQueryHandler(handle_confirmation)],
-        AWAITING_REFINEMENT: [MessageHandler(filters.TEXT, refine_details)],
+        AWAITING_REFINEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, refine_details)],
+        AWAITING_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit), CallbackQueryHandler(button_click)],
     },
     fallbacks=[CommandHandler("quit", quit_bot)],
 )
 
 bot_app.add_handler(conv_handler)
 bot_app.add_handler(MessageHandler(filters.TEXT, reject_unexpected_messages))
+bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("quit", quit_bot))
 
 # Define the lifespan context manager
@@ -36,7 +38,7 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize and start the bot
     await bot_app.initialize()
     await bot_app.start()
-    logging.info("Bot has started successfully!")
+    logging.info("Bot has started successfully.")
     yield
     # Shutdown: Stop the bot
     await bot_app.stop()

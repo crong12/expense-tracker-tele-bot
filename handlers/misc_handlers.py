@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
 from services import get_or_create_user
-from config import WAITING_FOR_EXPENSE
+from config import WAITING_FOR_EXPENSE, AWAITING_EDIT
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """bot initialisation; create start menu for user input"""
@@ -11,6 +11,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     start_keyboard = [
         [InlineKeyboardButton("📌 Insert Expense", callback_data="insert_expense")],
+        [InlineKeyboardButton("🔧 Edit Expense", callback_data="edit_expense")],
         [InlineKeyboardButton("📊 Export Expenses", callback_data="export_expenses")],
         [InlineKeyboardButton("❌ Quit", callback_data="quit")]
     ]
@@ -42,6 +43,11 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "insert_expense":
         await query.message.reply_text("Sure, what did you spend on?")
         return WAITING_FOR_EXPENSE
+    
+    if query.data == "edit_expense":
+        await query.message.reply_text("Which expense would you like to edit? Reply to the message I sent with \
+                                        those expense details and what you would like to change in it 😊")
+        return AWAITING_EDIT
 
     elif query.data == "export_expenses":
         from handlers.export import export_expenses
