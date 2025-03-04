@@ -24,7 +24,7 @@ conv_handler = ConversationHandler(
         AWAITING_REFINEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, refine_details)],
         AWAITING_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit), CallbackQueryHandler(button_click)],
     },
-    fallbacks=[CommandHandler("quit", quit_bot)],
+    fallbacks=[CommandHandler("start", start), CommandHandler("quit", quit_bot)],
 )
 
 bot_app.add_handler(conv_handler)

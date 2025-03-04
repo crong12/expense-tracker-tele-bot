@@ -30,7 +30,7 @@ async def quit_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reject_unexpected_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rejects messages when no active conversation is happening."""
-    await update.message.reply_text("Please type /start to begin.")
+    await update.message.reply_text("Unknown command. Please type /start to access the main menu.")
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """handle button response from start menu"""
@@ -45,8 +45,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_FOR_EXPENSE
     
     if query.data == "edit_expense":
-        await query.message.reply_text("Which expense would you like to edit? Reply to the message I sent with \
-                                        those expense details and what you would like to change in it 😊")
+        await query.message.reply_text("Which expense would you like to edit? Reply to the message I sent with those expense details and what you would like to change in it 😊")
         return AWAITING_EDIT
 
     elif query.data == "export_expenses":

@@ -6,7 +6,7 @@ def get_project_id():
     _, project = google.auth.default()
     return project
 
-PROJECT_ID = get_project_id()  # Use this instead of hardcoding it
+PROJECT_ID = get_project_id()
 
 def get_secret(secret_name):
     """function to retrieve secret from google secret manager"""
