@@ -74,7 +74,10 @@ Regular expense tracking apps require one to insert expense details into specifi
 
 I designed this bot to act as an "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed accordingly. This is possible due to the semantic understanding capabilities of LLMs (I use `Gemini 1.5 Flash` for this project). By leveraging LLMs, the functionality of the bot has much room for growth (see: upcoming features in the [roadmap](#roadmap), the most exciting of which is the potential for LLM-powered expense analytics, enabling smarter insights for data-driven financial literacy. I'm also keen to explore agentic AI workflows, leveraging tool use to enable features such as live currency conversions and LLM-powered expense analytics. 
 
-![Demo screenshot][demo-screenshot1]
+<p align="center">
+  <img src="images/demo_ss1.png" width="752" height="400"/>
+</p>
+
 *Screenshot of an expense recording instance. The model is able to parse the category correctly, although it is possible to make changes if need be (for example, if you want `Supermarket` as a category instead of `Groceries`).*
 
 Unfortunately, while my bot is currently up and running, testing will only be open to a bunch of close friends as I only have that many Google Cloud credits 😔 However, I implore you to set the bot up for yourself (first-time Google Cloud users get a bunch of free credits anyway) and give it a try! 🚀
@@ -250,7 +253,10 @@ The bot will extract the following details:
 
 The bot will prompt you to confirm or refine the details.
 
-![Demo screenshot 3][demo-screenshot3]
+<p align="center">
+  <img src="images/image_input_screenshot.png" width="460" height="500"/>
+</p>
+
 *Screenshot of an expense recording instance with image input. Using `Gemini-1.5-Flash`'s multimodal capabilities, expenses can easily be parsed from images such as receipts, further easing the expense adding process.*
 
 ### **3️⃣ Confirm or Refine Expense Details**
@@ -261,7 +267,10 @@ Otherwise, click **`❌ No`** and provide updated details for further refinement
 ### **4️⃣ Edit Expense Details**
 Click **`🔧 Edit Expense`** and reply to a message from the bot with the relevant expense details, stating the edits to be made. 
 
-![Demo screenshot 2][demo-screenshot2]
+<p align="center">
+  <img src="images/edit_expense_screenshot.png" width="450" height="500"/>
+</p>
+
 *Screenshot of an expense editing instance. The bot is able to find the exact expense in the database using the `expense_id` associated with every saved expense.*
 
 ### **5️⃣ Export Expenses**
@@ -346,9 +355,6 @@ Distributed under the [MIT license](LICENSE).
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[demo-screenshot1]: images/demo_ss1.png
-[demo-screenshot2]: images/edit_expense_screenshot.png
-[demo-screenshot3]: images/image_input_screenshot.png
 [Python-shield]: https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54
 [Python-url]: https://www.python.org/
 [Postgresql-shield]: https://img.shields.io/badge/postgresql-4169e1?style=for-the-badge&logo=postgresql&logoColor=white
