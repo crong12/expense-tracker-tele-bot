@@ -117,6 +117,7 @@ expense-tracker-tele-bot/
 │── .gitignore
 │── images/                  # Folder containing demo screenshots
 │── LICENSE                  # MIT license file
+│── CHANGELOG.md             # Documentation of changes made to bot
 └── README.md                # Project description
 ```
 
@@ -188,6 +189,7 @@ To try this bot for yourself, follow these steps.
 <br/>
 
 **4. Build and deploy bot to Google Cloud Run**  
+<br/>
    4.1 Authenticate Docker with Google Cloud
    ```sh
    gcloud auth configure-docker your-region-docker.pkg.dev
@@ -237,7 +239,7 @@ Send **`/start`** to initialize the bot and open the main menu.
 
 ### **2️⃣ Add an Expense**
 
-Click **`📌 Insert Expense`**, then type an expense in plain text (e.g., "Spent $10 on coffee at Starbucks yesterday").
+Click **`📌 Insert Expense`**, then either type an expense in plain text (e.g., "Spent $10 on coffee at Starbucks yesterday"), or send an image (e.g., a picture of a receipt).
 
 The bot will extract the following details:
 - Currency
@@ -248,15 +250,24 @@ The bot will extract the following details:
 
 The bot will prompt you to confirm or refine the details.
 
+![Demo screenshot 3][demo-screenshot3]
+*Screenshot of an expense recording instance with image input. Using `Gemini-1.5-Flash`'s multimodal capabilities, expenses can easily be parsed from images such as receipts, further easing the expense adding process.*
+
 ### **3️⃣ Confirm or Refine Expense Details**
 If correct, click **`✅ Yes`** to insert the expense into the database.
 
-Otherwise, click **`❌ No`** and provide updated details for refinement.
+Otherwise, click **`❌ No`** and provide updated details for further refinement.
 
-### **4️⃣ Export Expenses**
+### **4️⃣ Edit Expense Details**
+Click **`🔧 Edit Expense`** and reply to a message from the bot with the relevant expense details, stating the edits to be made. 
+
+![Demo screenshot 2][demo-screenshot2]
+*Screenshot of an expense editing instance. The bot is able to find the exact expense in the database using the `expense_id` associated with every saved expense.*
+
+### **5️⃣ Export Expenses**
 Click **`📊 Export Expenses`** to receive a CSV file of your past expenses.
 
-### **5️⃣ Quit the Bot**
+### **6️⃣ Quit the Bot**
 Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exit.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -266,7 +277,7 @@ Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exi
 ## Roadmap
 
 ### **✅ Completed Features**
-- LLM-powered expense processing (adding and editing so far; deleting coming soon)
+- LLM-powered expense processing (adding, editing, and deleting)
 
 - Google Cloud-based SQL database storage
 
@@ -276,8 +287,6 @@ Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exi
 
 ### **🚀 In the Pipeline**
 
-- **✨ QoL functionalities:** Allow users to edit and delete past expenses 
-
 - **📷 Multimodal expense input:** Allow users to upload images of receipts or even speech-to-text, although the latter may be more of a stretch goal...
 
 - **💱 Multi-Currency support:** Convert expenses into a preferred currency based on current exchange rates
@@ -285,6 +294,10 @@ Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exi
 - **📊 LLM-powered analytics:** Generate insights based on user's request, such as category-based spending trends and monthly reports (e.g. "how much did I spend last month?")
 
 - **📆 Scheduled reminders:** Send scheduled messages to remind users to track expenses
+
+- **✨ Miscellaneous QoL functionalities:** Allow users to edit and delete past expenses 
+
+- **🤖 Fully Agentic Workflow:** Excited by the possibility of utilising an agentic framework (e.g., LangGraph) to create a fully agentic workflow for a truly smart expense tracking bot.
 
 <br/>
 <br/>
@@ -334,6 +347,8 @@ Distributed under the [MIT license](LICENSE).
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
 [demo-screenshot1]: images/demo_ss1.png
+[demo-screenshot2]: images/edit_expense_screenshot.png
+[demo-screenshot3]: images/image_input_screenshot.png
 [Python-shield]: https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54
 [Python-url]: https://www.python.org/
 [Postgresql-shield]: https://img.shields.io/badge/postgresql-4169e1?style=for-the-badge&logo=postgresql&logoColor=white
