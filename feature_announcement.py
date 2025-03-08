@@ -16,21 +16,29 @@ from google.cloud.sql.connector import Connector
 from sqlalchemy import create_engine, Column, UUID, BigInteger
 
 
-SCREENSHOT = "images/edit_expense_screenshot.png"
+SCREENSHOT = "images/image_input_screenshot.png"
 
 MESSAGE_TEXT = """
-<b>🚀 New Feature! 🚀</b>
+<b>🚀 Update Alert! 🚀</b>
 
-I can now edit your past expenses! 
+<b>New features:</b>
 
-<b>Step 1:</b> In the main menu, select <b>🔧 Edit Expense</b>
-<b>Step 2:</b> Simply reply to my message containing your expense details and let me know what you'd like to change 😊
+<b>1. Expense Deletion</b>
+Added a wrong expense by accident? I can now delete it! 
+<u>Step 1:</u> In the main menu, select <b>🗑️ Delete Expenses</b>
+<u>Step 2:</u> Simply reply to my message containing the expense to be deleted, and I'll get that sorted for you.
+
+<b>2. Multimodal Input</b>
+Now able to read images!
+<u>Step 1:</u> In the main menu, select <b>📌 Insert Expense</b>
+<u>Step 2:</u> Send a photo of an image (e.g. a receipt) and I'll extract the required details from there 😚
 
 ❗️Let @chrxmium know if you face any issues or have any feedback to make me better.
 """
 
 load_dotenv()
 BOT_TOKEN = os.getenv("TELE_BOT_TOKEN")
+#TEST_BOT_TOKEN = os.getenv("TEST_BOT_TOKEN")       # for testing purposes
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 REGION = os.getenv("REGION")
 INSTANCE_NAME = os.getenv("INSTANCE_NAME")

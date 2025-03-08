@@ -1,6 +1,8 @@
 from datetime import datetime
+import io
+from PIL import Image
 import vertexai
-from vertexai.generative_models import GenerativeModel, GenerationConfig
+from vertexai.generative_models import GenerativeModel, GenerationConfig, Part
 from tenacity import retry, wait_random_exponential
 from config import PROJECT_ID, REGION, MODEL_NAME, TEMPERATURE
 
@@ -46,11 +48,47 @@ async def process_expense_text(input_text: str):
     PRICE (return 2 DECIMAL PLACES AT ALL TIMES, even if an integer price is provided);
     CATEGORY (think about what it should be based on the item or place provided);
     DESCRIPTION (this can just be the place or store name, if specified. If a shop name is not specified or is unclear, be more detailed in the description, 
-    but make sure to only include whatever is already in the user input); 
+    but make sure to only include whatever is already in the user input. return output in Title Case); 
     DATE (be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date).
     """
     response = await model.generate_content_async(
         contents=prompt, generation_config=expense_config
+    )
+    return response.text
+
+# function to call gemini to process expense (e.g. receipt) image
+# implement exponential backoff for load handling
+@retry(wait=wait_random_exponential(multiplier=1, max=60))
+async def process_expense_image(image_path: str):
+    """parses expense details from image input
+    Args:
+        image_path (str): path to image sent by user
+    """
+    prompt = f"""
+    Extract structured expense details from the image.
+    
+    Instructions:
+    - Look for the TOTAL amount (usually near the bottom, labeled as "TOTAL", "GRAND TOTAL", "AMOUNT DUE", etc.). Return 2 DECIMAL PLACES AT ALL TIMES, even if an integer price is provided.
+    - Today's date is {today}. Today is {day}. Extrapolate the expense date based on today's date. 
+    - Use receipt date if available; otherwise, infer a reasonable date based on context.
+    - Be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date.
+    - For currency, default to SGD if unspecified. Assume $ means SGD unless context suggests otherwise.
+    - Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB).
+    - For description, use the store/vendor name or a summary of the main purchase. Return output in Title Case.
+    - For category, determine a suitable category based on the vendor or purchased items.
+    """
+
+    with open(image_path, "rb") as img_file:
+        image_bytes = img_file.read()
+
+    image_part = Part.from_data(
+        mime_type="image/png",
+        data=image_bytes
+    )
+
+    response = await model.generate_content_async(
+        contents=[image_part, prompt],
+        generation_config=expense_config
     )
     return response.text
 

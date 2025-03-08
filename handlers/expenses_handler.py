@@ -1,12 +1,14 @@
 import re
+import os
 import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-from handlers.misc_handlers import start
-from services.gemini_svc import process_expense_text, refine_expense_details
-from services.expenses_svc import insert_expense, update_expense, get_or_create_user, exact_expense_matching
+from services.gemini_svc import process_expense_text, process_expense_image, refine_expense_details
+from services.expenses_svc import insert_expense, update_expense, get_or_create_user, \
+    exact_expense_matching, delete_all_expenses, delete_specific_expense
 from utils import str_to_json
-from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, AWAITING_EDIT
+from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, \
+    AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION
 
 # yes/no inline keyboard for user confirmation
 keyboard = [
@@ -16,15 +18,25 @@ keyboard = [
 reply_markup = InlineKeyboardMarkup(keyboard)
 
 
-async def process_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles expense text processing"""
-    user_input = update.message.text
+    message = update.message
 
-    # handle case whereby user wants to go back to main menu instead of inputting another expense
-    if user_input == "/start":
-        return await start(update, context)
+    if message.text:
+        user_input = message.text
+        response = await process_expense_text(user_input)
 
-    response = await process_expense_text(user_input)
+    elif message.photo:
+        image = message.photo[-1]
+        image_file = await image.get_file()
+        image_path = f"/tmp/{image_file.file_unique_id}.jpg"
+        await image_file.download_to_drive(custom_path=image_path)
+        response = await process_expense_image(image_path)
+        os.remove(image_path)   # remove image after parsing completed
+    else:
+        await message.reply_text("⚠️ I'm sorry, I don't know what that is. Please send either a text message or photo!")
+        return WAITING_FOR_EXPENSE
+
     json_response = str_to_json(response)
     context.user_data['parsed_expense'] = json_response
 
@@ -57,10 +69,10 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         if isinstance(parsed_expense, dict):  # ensure valid dictionary
             telegram_id = update.effective_user.id
             user_id = get_or_create_user(telegram_id)  # retrieve UUID associated with user
-            
+
             # check if user is editing expense
             expense_id_for_edit = context.user_data.get("editing_expense_id")
-            
+
             # update expense
             if expense_id_for_edit:
                 expense_id = update_expense(
@@ -71,7 +83,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     date=parsed_expense['date'],
                     currency=parsed_expense['currency']
                 )
-                
+
                 if expense_id:
                     await context.bot.send_message(chat_id,
                                                 "<b>✅ Your expense has been updated successfully!</b>\n"
@@ -83,7 +95,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                                                 f"<b>Expense ID:</b> {expense_id}\n",
                                                 parse_mode = 'HTML')
                     await context.bot.send_message(chat_id, "Would you like to add a new expense? Type it below or send /start to go back to the main menu.")
-            
+
             else:
                 # insert expense into the database
                 expense_id = insert_expense(
@@ -103,6 +115,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                                             f"📅 <b>Date:</b> {parsed_expense['date']}\n\n"
                                             f"<b>Expense ID:</b> {expense_id}\n",
                                             parse_mode = 'HTML')
+
                 await context.bot.send_message(chat_id, "Would you like to add another expense? Type it below or send /start to go back to the main menu.")
 
         else:
@@ -119,13 +132,6 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """handle user-provided corrections and refines the details"""
     user_feedback = update.message.text
-
-    # # handle case whereby user wants to go back to main menu instead of inputting another expense
-    # if user_feedback == "/start":
-    #     return await start(update, context)
-    # elif user_feedback == '/quit':
-    #     await update.message.reply_text("❌ Expense refinement has been canceled. Let's go back to the main menu.")
-    #     return await start(update, context)
 
     original_details = context.user_data.get('parsed_expense', '')
 
@@ -161,11 +167,11 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     original_text = update.message.reply_to_message.text
 
     await update.message.reply_text("⏱️ Trying to find the expense in the database...")
-    # try to extract expense ID for easier matching 
+    # try to extract expense ID for easier matching
     match = re.search(r"Expense ID:\s*(\d+)", original_text)
 
     if match:
-        expense_id = int(match.group(1)) 
+        expense_id = int(match.group(1))
     else:
         expense_id = exact_expense_matching(original_text)      # extract expense ID using exact details in database
 
@@ -192,3 +198,79 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     return AWAITING_CONFIRMATION
+
+async def process_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles user response for deleting an expense (or all of them)."""
+
+    user_delete_request = update.message.text
+
+    if 'all' in user_delete_request.lower():
+        # user confirmation step
+        await update.message.reply_text(
+            "⚠️ Are you sure you want to delete ALL your expenses? This action is irreversible!",
+            reply_markup=reply_markup
+            )
+        context.user_data["specific_or_all"] = 'all'
+        return AWAITING_DELETE_CONFIRMATION
+
+    # if user does not want to delete all expenses, make sure they reply to a specific message
+    if not update.message.reply_to_message:
+        await update.message.reply_text("⚠️ Please reply to a bot message that contains expense details.")
+        return AWAITING_DELETE_REQUEST
+
+    # extract expense details from the replied-to message
+    original_text = update.message.reply_to_message.text
+
+    await update.message.reply_text("⏱️ Trying to find the expense in the database...")
+
+    # try to extract expense ID for easier matching
+    match = re.search(r"Expense ID:\s*(\d+)", original_text)
+
+    if match:
+        expense_id = int(match.group(1))
+    else:
+        expense_id = exact_expense_matching(original_text)      # extract expense ID using exact details in database
+
+    if not expense_id:
+        await update.message.reply_text("⚠️ Sorry, I couldn't find the expense in the database. Please try again.")
+        return AWAITING_DELETE_REQUEST
+
+    await update.message.reply_text(
+        "⚠️ Are you sure you want to delete this expense?\n"
+        f"{original_text}",
+        reply_markup=reply_markup
+        )
+
+    context.user_data["specific_or_all"] = 'specific'
+    context.user_data["expense_id"] = expense_id    # store expense ID in context so that it can be extracted again later
+
+    return AWAITING_DELETE_CONFIRMATION
+
+async def delete_expense_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles confirmation response from the user regarding expense deletion."""
+    query = update.callback_query
+    await query.answer()
+
+    # extract uuid associated with user
+    telegram_id = query.message.chat_id
+    user_id = get_or_create_user(telegram_id)
+
+    if query.data == "confirmation" and context.user_data["specific_or_all"] == 'all':
+        operation = delete_all_expenses(user_id)
+        if operation:
+            await query.message.reply_text("✅ All your expenses have been deleted successfully.")
+        else:
+            await query.message.reply_text("⚠️ An error occurred while deleting your expenses. Please try again.")
+
+    elif query.data == "confirmation" and context.user_data["specific_or_all"] == 'specific':
+        expense_id = context.user_data["expense_id"]    # extract expense ID from context
+        operation = delete_specific_expense(user_id, expense_id)
+        if operation:
+            await query.message.edit_text(f"✅ Expense ID {expense_id} has been deleted successfully.")
+        else:
+            await query.message.edit_text("⚠️ Failed to delete the expense. Please try again.")
+
+    else:  # If the user cancels
+        await query.message.edit_text("🚫 Expense deletion canceled.")
+
+    return WAITING_FOR_EXPENSE

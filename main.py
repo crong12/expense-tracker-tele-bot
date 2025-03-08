@@ -3,8 +3,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
-from handlers import start, process_text, process_edit, button_click, reject_unexpected_messages, refine_details, handle_confirmation, quit_bot
-from config import BOT_TOKEN, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, AWAITING_EDIT
+from handlers import start, process_insert, process_edit, button_click, \
+    reject_unexpected_messages, refine_details, handle_confirmation, quit_bot,\
+    process_delete, delete_expense_confirmation
+from config import BOT_TOKEN, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION
 
 # Set up logging
 logging.basicConfig(
@@ -19,10 +21,14 @@ bot_app = Application.builder().token(BOT_TOKEN).build()
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start), CallbackQueryHandler(button_click)],
     states={
-        WAITING_FOR_EXPENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_text), CallbackQueryHandler(button_click)],
+        WAITING_FOR_EXPENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_insert), 
+                              MessageHandler(filters.PHOTO & ~filters.COMMAND, process_insert), 
+                              CallbackQueryHandler(button_click)],
         AWAITING_CONFIRMATION: [CallbackQueryHandler(handle_confirmation)],
         AWAITING_REFINEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, refine_details)],
         AWAITING_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit), CallbackQueryHandler(button_click)],
+        AWAITING_DELETE_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_delete)],
+        AWAITING_DELETE_CONFIRMATION: [CallbackQueryHandler(delete_expense_confirmation)] 
     },
     fallbacks=[CommandHandler("start", start), CommandHandler("quit", quit_bot)],
 )

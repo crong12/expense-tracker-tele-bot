@@ -137,3 +137,42 @@ def exact_expense_matching(expense_text):
     session.close()
 
     return expense.id if expense else None
+
+def delete_all_expenses(user_id):
+    """delete all expenses for a specific user"""
+    session = SessionLocal()
+
+    try:
+        session.query(Expenses).filter(Expenses.user_id == user_id).delete()
+        session.commit()
+        return True
+
+    except Exception as e:
+        print(f"Error exporting expenses: {e}")
+        return False
+
+    finally:
+        session.close()
+        
+def delete_specific_expense(user_id, expense_id):
+    """Deletes a specific expense associated with a user."""
+    session = SessionLocal()
+
+    try:
+        expense = session.query(Expenses).filter(
+            Expenses.user_id == user_id, Expenses.id == expense_id
+        ).first()
+
+        if expense:
+            session.delete(expense)
+            session.commit()
+            return True 
+        return False 
+
+    except Exception as e:
+        session.rollback()
+        print(f"Error deleting expense: {e}")
+        return False 
+
+    finally:
+        session.close()

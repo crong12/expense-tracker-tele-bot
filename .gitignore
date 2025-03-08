@@ -7,5 +7,8 @@
 # ignore compiled Python files
 __pycache__/
 
-# ignore scratch workbook
+# ignore scratch notebook
 scratch.ipynb
+
+# ignore deployment automation script
+deploy.ps1
