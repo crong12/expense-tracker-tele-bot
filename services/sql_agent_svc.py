@@ -183,7 +183,6 @@ When reviewing the SQL query and its results:
 5. Use a friendly, enthusiastic tone while maintaining professionalism
 
 Format your response in Markdown. 
-Do not return one long paragraph. Break it up into readable paragraph lengths.
 
 For empty results, tell the user that something went wrong and to try again.
 
