@@ -3,12 +3,15 @@ import os
 import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+from md2tgmd import escape
 from services.gemini_svc import process_expense_text, process_expense_image, refine_expense_details
 from services.expenses_svc import insert_expense, update_expense, get_or_create_user, \
     exact_expense_matching, delete_all_expenses, delete_specific_expense
+from services.sql_agent_svc import analyser_agent
 from utils import str_to_json
 from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, \
-    AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION
+    AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, AWAITING_QUERY
+
 
 # yes/no inline keyboard for user confirmation
 keyboard = [
@@ -154,6 +157,7 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return AWAITING_CONFIRMATION
 
+
 async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles user response for editing an expense."""
 
@@ -198,6 +202,7 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     return AWAITING_CONFIRMATION
+
 
 async def process_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles user response for deleting an expense (or all of them)."""
@@ -246,6 +251,7 @@ async def process_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return AWAITING_DELETE_CONFIRMATION
 
+
 async def delete_expense_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles confirmation response from the user regarding expense deletion."""
     query = update.callback_query
@@ -272,5 +278,83 @@ async def delete_expense_confirmation(update: Update, context: ContextTypes.DEFA
 
     else:  # If the user cancels
         await query.message.edit_text("🚫 Expense deletion canceled.")
+
+    return WAITING_FOR_EXPENSE
+
+
+async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles user query about expenses"""
+
+    telegram_id = update.effective_user.id
+    user_id = get_or_create_user(telegram_id)  # retrieve UUID associated with user
+    chat_id = update.message.chat_id
+
+    user_query = update.message.text
+    previous_answer = context.user_data.get('expense_analysis', "")
+    prompt = f"""
+    The user's query is: {user_query}.
+    
+    The user's UUID is {user_id}. ONLY query rows that belong to the user.
+    
+    Previous answer you provided: {previous_answer} 
+    """
+
+    # Send initial message
+    processing_msg = await context.bot.send_message(
+        chat_id, "🔍 Processing your expense query..."
+    )
+
+    try:
+        # Set up the stream handler
+        async for chunk in analyser_agent.astream(
+            {"messages": [("user", prompt)]},
+            stream_mode=["updates", "custom"]
+            ):
+
+            if isinstance(chunk, tuple) and chunk[0] == 'custom':
+                # extract custom progress report message to be sent to user
+                message_to_send = chunk[1]['custom']
+
+                await context.bot.edit_message_text(
+                    message_to_send,
+                    chat_id=chat_id,
+                    message_id=processing_msg.message_id
+                )
+
+            if isinstance(chunk, tuple) and 'analyze_results' in chunk[1]:
+                # extract final answer and convert to HTML for Telegram text formatting
+                final_answer = chunk[1]['analyze_results']['messages'][-1].tool_calls[0]["args"]["final_answer"]
+                formatted_ans = escape(final_answer)
+                await context.bot.delete_message(
+                        chat_id=chat_id,
+                        message_id=processing_msg.message_id
+                    )
+                
+                await context.bot.send_message(
+                        chat_id,
+                        f"{formatted_ans}\n\n"
+                        "Do you have any other questions? Let me know and I'll do my best to answer them\!",
+                        parse_mode='MarkdownV2'
+                    )
+                context.user_data['expense_analysis'] = final_answer
+                return AWAITING_QUERY
+
+        # If we didn't get a proper final result
+        await context.bot.send_message(
+            chat_id,
+            "Sorry, I couldn't process your query properly. Please try again."
+        )
+        
+    except Exception as e:
+        if '429' in str(e):
+            await context.bot.send_message(
+            chat_id,
+            "Sorry, I am unable to answer your query at this moment due to rate limits 😓... Please try again later."
+            )
+        else: 
+            await context.bot.send_message(
+                chat_id,
+                f"Sorry, there was an error in processing your query: {str(e)}. Please try again later."
+            )
 
     return WAITING_FOR_EXPENSE

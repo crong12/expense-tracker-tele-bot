@@ -1,3 +1,4 @@
+import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -5,8 +6,16 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
 from handlers import start, process_insert, process_edit, button_click, \
     reject_unexpected_messages, refine_details, handle_confirmation, quit_bot,\
-    process_delete, delete_expense_confirmation
-from config import BOT_TOKEN, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION
+    process_delete, delete_expense_confirmation, process_query
+from config import BOT_TOKEN, LANGSMITH_API_KEY, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, \
+    AWAITING_REFINEMENT, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, \
+    AWAITING_QUERY
+
+# enable langsmith tracing
+os.environ["LANGSMITH_TRACING"] = "true"
+os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+os.environ["LANGSMITH_PROJECT"] = "expense-bot-deployed"
+os.environ["LANGSMITH_API_KEY"] = LANGSMITH_API_KEY
 
 # Set up logging
 logging.basicConfig(
@@ -21,14 +30,17 @@ bot_app = Application.builder().token(BOT_TOKEN).build()
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start), CallbackQueryHandler(button_click)],
     states={
-        WAITING_FOR_EXPENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_insert), 
-                              MessageHandler(filters.PHOTO & ~filters.COMMAND, process_insert), 
+        WAITING_FOR_EXPENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_insert),
+                              MessageHandler(filters.PHOTO & ~filters.COMMAND, process_insert),
                               CallbackQueryHandler(button_click)],
         AWAITING_CONFIRMATION: [CallbackQueryHandler(handle_confirmation)],
         AWAITING_REFINEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, refine_details)],
-        AWAITING_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit), CallbackQueryHandler(button_click)],
+        AWAITING_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit),
+                        CallbackQueryHandler(button_click)],
         AWAITING_DELETE_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_delete)],
-        AWAITING_DELETE_CONFIRMATION: [CallbackQueryHandler(delete_expense_confirmation)] 
+        AWAITING_DELETE_CONFIRMATION: [CallbackQueryHandler(delete_expense_confirmation)],
+        AWAITING_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_query),
+                         CallbackQueryHandler(button_click)]
     },
     fallbacks=[CommandHandler("start", start), CommandHandler("quit", quit_bot)],
 )

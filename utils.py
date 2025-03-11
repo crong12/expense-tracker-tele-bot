@@ -1,9 +1,48 @@
 import json
+from typing import Any
+from langchain_core.messages import ToolMessage
+from langchain_core.runnables import RunnableLambda, RunnableWithFallbacks
+from langgraph.prebuilt import ToolNode
 
-def str_to_json(text: str):
+def str_to_json(text: str) -> dict:
+    """
+    Converts given string to json format.
+    
+    Args:
+        text (str): The string to be converted to json format.
+    
+    Returns:
+        dict: The json object.
+    """
     try:
         json_response = json.loads(text)
         return json_response
-    
+
     except json.JSONDecodeError:
-        return ("error: Failed to parse response as JSON")
+        return "error: Failed to parse response as JSON"
+
+# define util functions
+def create_tool_node_with_fallback(tools: list) -> RunnableWithFallbacks[Any, dict]:
+    """
+    Create a ToolNode with a fallback to handle errors and surface them to the agent.
+    """
+    return ToolNode(tools).with_fallbacks(
+        [RunnableLambda(handle_tool_error)], exception_key="error"
+    )
+
+
+def handle_tool_error(state) -> dict:
+    """
+    Surfaces error messages to the agent
+    """
+    error = state.get("error")
+    tool_calls = state["messages"][-1].tool_calls
+    return {
+        "messages": [
+            ToolMessage(
+                content=f"Error: {repr(error)}\n please fix your mistakes.",
+                tool_call_id=tc["id"],
+            )
+            for tc in tool_calls
+        ]
+    }

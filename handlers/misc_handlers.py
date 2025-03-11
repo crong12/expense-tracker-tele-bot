@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
 from services import get_or_create_user
-from config import WAITING_FOR_EXPENSE, AWAITING_EDIT, AWAITING_DELETE_REQUEST
+from config import WAITING_FOR_EXPENSE, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_QUERY
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """bot initialisation; create start menu for user input"""
@@ -14,6 +14,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔧 Edit Expense", callback_data="edit_expense")],
         [InlineKeyboardButton("📊 Export Expenses", callback_data="export_expenses")],
         [InlineKeyboardButton("🗑️ Delete Expenses", callback_data="delete_expenses")],
+        [InlineKeyboardButton("🔍 Analyse Expenses", callback_data="analyse_expenses")],
         [InlineKeyboardButton("❌ Quit", callback_data="quit")]
     ]
     start_markup = InlineKeyboardMarkup(start_keyboard)
@@ -36,10 +37,7 @@ async def reject_unexpected_messages(update: Update, context: ContextTypes.DEFAU
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """handle button response from start menu"""
     query = update.callback_query
-    try:
-        await query.answer()
-    except RuntimeError as e:
-        print(f"Warning: {e} (Ignoring safely)")
+    await query.answer()
 
     if query.data == "insert_expense":
         await query.message.reply_text("Sure, what did you spend on? Send me a text message or picture of a receipt please!")
@@ -58,6 +56,15 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Which expense would you like to delete? Reply to a message I sent with those expense details and I'll get rid of it for you. Alternatively, send 'all' to delete all past expenses.")
         return AWAITING_DELETE_REQUEST
 
-    elif query.data == "quit":
+    if query.data == "analyse_expenses":
+        telegram_id = update.effective_user.id
+        if telegram_id != 107335297:
+            await query.message.reply_text("🚧 Feature under testing... Please select another option")
+            return WAITING_FOR_EXPENSE
+        else:
+            await query.message.reply_text("Sure, ask me anything about your expenses!")
+            return AWAITING_QUERY
+
+    if query.data == "quit":
         await query.message.reply_text("Goodbye! Type /start if you need me again.")
         return ConversationHandler.END

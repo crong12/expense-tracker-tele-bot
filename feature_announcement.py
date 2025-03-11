@@ -37,8 +37,8 @@ Now able to read images!
 """
 
 load_dotenv()
-BOT_TOKEN = os.getenv("TELE_BOT_TOKEN")
-#TEST_BOT_TOKEN = os.getenv("TEST_BOT_TOKEN")       # for testing purposes
+BOT_TOKEN = os.getenv("TELE_BOT_TOKEN", "").strip().strip('"').strip("'")
+#TEST_BOT_TOKEN = os.getenv("TEST_BOT_TOKEN", "").strip().strip('"').strip("'")       # for testing purposes
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 REGION = os.getenv("REGION")
 INSTANCE_NAME = os.getenv("INSTANCE_NAME")
@@ -74,16 +74,32 @@ class Users(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     telegram_id = Column(BigInteger, unique=True, nullable=False)
 
+# from md2tgmd import escape
+# text = """Okay! Here's a concise summary of your expenses for this month:
+
+# *   **Groceries:** £89.88
+# *   **Food:** £54.13
+# *   **Utilities:** £36.17
+# *   **Entertainment:** £30.00
+# *   **Personal:** £18.00
+# *   **Medicine:** £10.00
+# *   **Miscellaneous:** £9.72
+
+# Your biggest expense this month was groceries. It would be interesting to see how this compares to last month!
+
+# Do you have any other questions? Let me know and I'll do my best to answer them!"""
+# text = escape(text)
+
 async def broadcast():
 
     session = SessionLocal()
     users = session.query(Users.telegram_id).all()
     user_ids = [user[0] for user in users]
     session.close()
+
     app = Application.builder().token(BOT_TOKEN).build()
 
     async with app:
-
         for user_id in user_ids:
             try:
                 with open(SCREENSHOT, "rb") as image:
@@ -93,6 +109,11 @@ async def broadcast():
                         caption=MESSAGE_TEXT,
                         parse_mode="HTML"
                     )
+                # await app.bot.send_message(
+                #     chat_id=user_id,
+                #     text=text,
+                #     parse_mode='MarkdownV2'
+                # )
                 print(f"✅ Announcement sent to {user_id}")
             except Exception as e:
                 print(f"⚠️ Failed to send to {user_id}: {e}")

@@ -1,6 +1,4 @@
 from datetime import datetime
-import io
-from PIL import Image
 import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig, Part
 from tenacity import retry, wait_random_exponential
@@ -40,8 +38,7 @@ async def process_expense_text(input_text: str):
     prompt = f"""
     Extract structured expense details from this text: {input_text}. 
     
-    Today's date is {today}. Today is {day}.
-    Extrapolate the expense date based on today's date.
+    Today's date is {today}. Today is {day}. Extrapolate the expense date based on today's date.
     
     Make sure to include: 
     CURRENCY (if unspecified, default is SGD. Assume that $ is SGD, not USD. Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB));

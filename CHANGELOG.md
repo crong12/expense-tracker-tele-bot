@@ -4,11 +4,14 @@ All notable changes to the bot will be documented here.
 
 
 
-## Unreleased
+## 1.3 - 2025-03-12
 
-### To be added
+### Added
+- AI agent workflow for LLM-powered expense analytics.
+- LangSmith tracing for agent observability and evaluation.
 
-- LLM-powered expense analytics.
+### Fixed
+- Incorrect expense-matching regex logic.
 
 
 ## 1.2 - 2025-03-08
@@ -31,4 +34,3 @@ All notable changes to the bot will be documented here.
 ## 1.0 - 2025-02-27
 
 - Here we go!
-

@@ -113,8 +113,8 @@ def exact_expense_matching(expense_text):
     # extract details from the text 
     currency_pattern = r"Currency: (\w+)"
     amount_pattern = r"Amount: ([\d.]+)"
-    category_pattern = r"Category: (\w+)"
-    description_pattern = r"Description: (\w+)"
+    category_pattern = r"Category:\s*(.+)"
+    description_pattern = r"Description:\s*(.+)"
     date_pattern = r"Date: (\d{4}-\d{2}-\d{2})"
 
     currency = re.search(currency_pattern, expense_text).group(1)
@@ -122,7 +122,7 @@ def exact_expense_matching(expense_text):
     category = re.search(category_pattern, expense_text).group(1)
     description = re.search(description_pattern, expense_text).group(1)
     date = re.search(date_pattern, expense_text).group(1)
-    
+
     date_obj = datetime.strptime(date, "%Y-%m-%d").date()  # convert string to date
 
     # Try to find a matching expense
@@ -166,13 +166,13 @@ def delete_specific_expense(user_id, expense_id):
         if expense:
             session.delete(expense)
             session.commit()
-            return True 
-        return False 
+            return True
+        return False
 
     except Exception as e:
         session.rollback()
         print(f"Error deleting expense: {e}")
-        return False 
+        return False
 
     finally:
         session.close()
