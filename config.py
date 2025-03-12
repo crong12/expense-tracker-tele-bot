@@ -17,17 +17,17 @@ def get_secret(secret_name):
 
 BOT_TOKEN = get_secret("TELE_BOT_TOKEN")
 REGION = get_secret("REGION")
-REGION2 = get_secret("REGION2")
 INSTANCE_NAME = get_secret("INSTANCE_NAME")
 DB_USER = get_secret("DB_USER")
 DB_PASSWORD = get_secret("DB_PASSWORD")
 DB_NAME = get_secret("DB_NAME")
+OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
 LANGSMITH_API_KEY = get_secret("LANGSMITH_API_KEY")
 INSTANCE_CONNECTION_NAME = f"{PROJECT_ID}:{REGION}:{INSTANCE_NAME}"
 
 # model config
 MODEL_NAME = "gemini-1.5-flash-002"
-AGENT_LLM = "gemini-2.0-flash-lite"
+AGENT_LLM = "gpt-4o-mini"
 TEMPERATURE = 0.2
 
 # conversation states

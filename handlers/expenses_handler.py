@@ -312,7 +312,7 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ):
 
             if isinstance(chunk, tuple) and chunk[0] == 'custom':
-                # extract custom progress report message to be sent to user
+                # Extract custom progress report message to be sent to user
                 message_to_send = chunk[1]['custom']
 
                 await context.bot.edit_message_text(
@@ -321,20 +321,21 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     message_id=processing_msg.message_id
                 )
 
-            if isinstance(chunk, tuple) and 'analyze_results' in chunk[1]:
-                # extract final answer and convert to HTML for Telegram text formatting
-                final_answer = chunk[1]['analyze_results']['messages'][-1].tool_calls[0]["args"]["final_answer"]
+            if isinstance(chunk, tuple) and 'answer_query' in chunk[1]:
+                # Extract final answer and convert to Telegram-compatible Markdown format
+                final_answer = chunk[1]['answer_query']['messages'][-1].tool_calls[0]["args"]["final_answer"]
                 formatted_ans = escape(final_answer)
-                await context.bot.delete_message(
-                        chat_id=chat_id,
-                        message_id=processing_msg.message_id
-                    )
-                
+
                 await context.bot.send_message(
                         chat_id,
                         f"{formatted_ans}\n\n"
                         "Do you have any other questions? Let me know and I'll do my best to answer them\!",
                         parse_mode='MarkdownV2'
+                    )
+                # Delete progress report message
+                await context.bot.delete_message(
+                        chat_id=chat_id,
+                        message_id=processing_msg.message_id
                     )
                 context.user_data['expense_analysis'] = final_answer
                 return AWAITING_QUERY
@@ -344,14 +345,15 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id,
             "Sorry, I couldn't process your query properly. Please try again."
         )
-        
+
     except Exception as e:
+        # Probably no longer an issue now that we're using gpt-4o-mini
         if '429' in str(e):
             await context.bot.send_message(
             chat_id,
             "Sorry, I am unable to answer your query at this moment due to rate limits 😓... Please try again later."
             )
-        else: 
+        else:
             await context.bot.send_message(
                 chat_id,
                 f"Sorry, there was an error in processing your query: {str(e)}. Please try again later."

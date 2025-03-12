@@ -12,6 +12,8 @@ images/
 
 # ignore other misc files
 README.md
+CHANGELOG.md
 LICENSE
 scratch.ipynb
 feature_announcement.py
+feature_announcement_testing.py

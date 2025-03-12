@@ -10,28 +10,27 @@ import os
 import uuid
 from dotenv import load_dotenv
 from telegram.ext import Application
+from sqlalchemy import create_engine, Column, UUID, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from google.cloud.sql.connector import Connector
-from sqlalchemy import create_engine, Column, UUID, BigInteger
 
 
-SCREENSHOT = "images/image_input_screenshot.png"
+DEMO = "images/demo_gif_compressed.gif"
 
 MESSAGE_TEXT = """
 <b>🚀 Update Alert! 🚀</b>
 
-<b>New features:</b>
+<b>New feature:</b>
 
-<b>1. Expense Deletion</b>
-Added a wrong expense by accident? I can now delete it! 
-<u>Step 1:</u> In the main menu, select <b>🗑️ Delete Expenses</b>
-<u>Step 2:</u> Simply reply to my message containing the expense to be deleted, and I'll get that sorted for you.
+<b> 🤖 LLM-powered Expense Analytics </b>
 
-<b>2. Multimodal Input</b>
-Now able to read images!
-<u>Step 1:</u> In the main menu, select <b>📌 Insert Expense</b>
-<u>Step 2:</u> Send a photo of an image (e.g. a receipt) and I'll extract the required details from there 😚
+Want to know more about your spending habits? Just ask me! Powered by <b>GPT-4o-mini</b>, you can now get detailed insights on your expenses and even useful advice on improving your spending habits.
+
+<u>Step 1:</u> In the main menu, select <b>🔍 Analyse Expenses</b>
+<u>Step 2:</u> Ask away!
+
+Of course, the more I know about your expenses, the better this feature works. So don't hesitate to track your expenses diligently so you can benefit from this feature! ☺️
 
 ❗️Let @chrxmium know if you face any issues or have any feedback to make me better.
 """
@@ -102,10 +101,10 @@ async def broadcast():
     async with app:
         for user_id in user_ids:
             try:
-                with open(SCREENSHOT, "rb") as image:
-                    await app.bot.send_photo(
+                with open(DEMO, "rb") as file:
+                    await app.bot.send_animation(
                         chat_id=user_id,
-                        photo=image,
+                        animation=file,
                         caption=MESSAGE_TEXT,
                         parse_mode="HTML"
                     )

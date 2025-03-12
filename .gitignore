@@ -12,3 +12,6 @@ scratch.ipynb
 
 # ignore deployment automation script
 deploy.ps1
+
+# ignore broadcast message testing script
+feature_announcement_testing.py

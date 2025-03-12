@@ -3,11 +3,20 @@
 All notable changes to the bot will be documented here.
 
 
+## 1.3.1 - 2025-03-12
 
-## 1.3 - 2025-03-12
+### Changed
+- Agent workflow &ndash; agent now able to respond to simple/ follow-up queries (that do not require access to database) directly. Refer to workflow graph for more details.
+- Agent workhorse &ndash; no longer using `gemini-2.0-flash-lite` due to low rate limits (5 RPM is not sufficient for an agentic workflow that requires multiple LLM calls within a few seconds). Now using `gpt-4o-mini`!
+
+### Fixed
+- Cleaned up some unused dependencies in requirements.txt, although it's nowhere near clean enough.
+
+
+## 1.3 - 2025-03-11
 
 ### Added
-- AI agent workflow for LLM-powered expense analytics.
+- AI agent workflow (using LangGraph) for LLM-powered expense analytics.
 - LangSmith tracing for agent observability and evaluation.
 
 ### Fixed
