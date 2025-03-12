@@ -25,7 +25,7 @@
       <ul>
         <li><a href="#expense-tracking">Expense Tracking</a></li>
         <li><a href="#why-a-telegram-bot">Why a Telegram Bot?</a></li>
-        <li><a href="#how-is-this-different-from-a-regular-app">How is this different from a regular app??</a></li>
+        <li><a href="#how-is-this-different-from-a-regular-app">How is this different from a regular app?</a></li>
         <li><a href="#agentic-workflow">Agentic Workflow</a></li>
         <li><a href="#built-with">Built With</a></li>
       </ul>
