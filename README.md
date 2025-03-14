@@ -4,7 +4,10 @@
 <!-- PROJECT HEADER -->
 <br />
 <div align="center">
-<h1 align="center">Expense Tracking Telegram Bot</h1>
+  <a href="https://github.com/crong12/expense-tracker-tele-bot">
+    <img src="images/telebot_logo.png" alt="Logo" width="400" height="328">
+  </a>
+  <h1 align="center">Expense Tracking Telegram Bot</h1>
 
   <p align="center">
     A Telegram bot for LLM-powered expense tracking.
