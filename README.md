@@ -72,7 +72,7 @@ On a side note, it also alleviates the burden of frontend development and allows
 
 Regular expense tracking apps require one to insert expense details into specified fields (e.g. amount spent, category, etc.) with limited variability. Just not very smart in general.
 
-Thus, I designed this bot to act as a smart "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed automatically. This is possible due to the semantic understanding capabilities of LLMs (I use `gemini-1.5-flash` and `gpt-4o-mini` for this project). By leveraging LLMs, the bot's functionalities have much room for growth. 
+Thus, I designed this bot to act as a smart "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed automatically. This is possible due to the semantic understanding capabilities of LLMs (I use `gemini-2.0-flash-lite` and `gpt-4o-mini` for this project). By leveraging LLMs, the bot's functionalities have much room for growth. 
 
 <br/>
 
@@ -91,7 +91,7 @@ To do so, I utilised LangGraph to create an agentic workflow for this analytics 
 
 <div align="center">
   <img src="images/workflow_graph.png" width="200" height="538"/><br>
-  <sub><b>Figure 2:</b> Visualisation of the agentic workflow.</sub>
+  <sub>Visualisation of the agentic workflow.</sub>
 </div>
 
 <br/>
@@ -171,14 +171,17 @@ To try this bot for yourself, follow these steps.
 - Python 3.8+ (this was built with 3.11)
 - Google Cloud SQL instance (PostgreSQL)
   - For setting up a PostgreSQL database using Google Cloud SQL, I referred mainly to [this tutorial](https://cloud.google.com/sql/docs/postgres/connect-instance-cloud-shell).
+  - You may explore other SQL database platforms (e.g. Raspberry Pi, other cloud providers, etc.). The only file to be changed significantly will then be `database.py`.
 - Google Cloud Project with Vertex AI and billing enabled 
   - To get started with Google Cloud Projects and Vertex AI, [this](https://cloud.google.com/vertex-ai/docs/start/cloud-environment) is a good starting point.
-- Google Cloud Secret Manager for storage of secret variables (API keys and such)
+- Google Cloud Secret Manager for storage of secret variables
   - Quickstart [here](https://cloud.google.com/secret-manager/docs/create-secret-quickstart).
 - Telegram Bot API Token
   - [This](https://core.telegram.org/bots/tutorial) is a comprehensive introduction to using Telegram bots.
-- Docker 
-- Google Cloud SDK
+- OpenAI API key
+- Docker
+- LangSmith tracing (optional)
+  - Get started [here](https://docs.smith.langchain.com/observability).
 
 ### Installation
 
@@ -191,7 +194,7 @@ To try this bot for yourself, follow these steps.
 
 <br/>
 
-**2. Set up Google Cloud Secrets**
+**2. Set up the relevant secret variables**
    ```sh
    # Create secrets
    gcloud secrets create TELE_BOT_TOKEN --replication-policy="automatic"
@@ -200,6 +203,8 @@ To try this bot for yourself, follow these steps.
    gcloud secrets create DB_USER --replication-policy="automatic"
    gcloud secrets create DB_PASSWORD --replication-policy="automatic"
    gcloud secrets create DB_NAME --replication-policy="automatic"
+   gcloud secrets create OPENAI_API_KEY --replication-policy="automatic"
+   gcloud secrets create LANGSMITH_API_KEY --replication-policy="automatic"
 
    # Then add values
    gcloud secrets versions add TELE_BOT_TOKEN --data-file=<(echo "your-telegram-bot-token")
@@ -208,6 +213,8 @@ To try this bot for yourself, follow these steps.
    gcloud secrets versions add DB_USER --data-file=<(echo "your-db-user")
    gcloud secrets versions add DB_PASSWORD --data-file=<(echo "your-db-password")
    gcloud secrets versions add DB_NAME --data-file=<(echo "your-db-name")
+   gcloud secrets versions add OPENAI_API_KEY --data-file=<(echo "your-openai-api-key")
+   gcloud secrets versions add LANGSMITH_API_KEY --data-file=<(echo "your-langsmith-api-key")
    ```
 
   Or you could do it within the browser console as well if that's easier.
@@ -225,21 +232,33 @@ To try this bot for yourself, follow these steps.
 
 <br/>
 
-**4. Build and deploy bot to Google Cloud Run**  
+**4. Set up LangSmith tracing (optional)**
+
+   ```python
+   # enable langsmith tracing
+   os.environ["LANGSMITH_TRACING"] = "true"
+   os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+   os.environ["LANGSMITH_PROJECT"] = "expense-bot-deployed"
+   os.environ["LANGSMITH_API_KEY"] = LANGSMITH_API_KEY
+   ```
+
 <br/>
-   4.1 Authenticate Docker with Google Cloud
+
+**5. Build and deploy bot to Google Cloud Run**  
+<br/>
+   5.1 Authenticate Docker with Google Cloud
    ```sh
    gcloud auth configure-docker your-region-docker.pkg.dev
    ```
-   4.2 Build Docker image
+   5.2 Build Docker image
    ```sh
    docker build -t your-region-docker.pkg.dev/your-project-id/your-repo/image-name .
    ```
-   4.3 Push to Google Artifact Registry
+   5.3 Push to Google Artifact Registry
    ```sh
    docker push your-region-docker.pkg.dev/your-project-id/your-repo/image-name
    ```
-   4.4 Deploy to Google Cloud Run
+   5.4 Deploy to Google Cloud Run
    ```sh
    gcloud run deploy service-name \
     --image=your-region-docker.pkg.dev/your-project-id/your-repo/image-name \
@@ -251,18 +270,20 @@ To try this bot for yourself, follow these steps.
 
 <br/>
 
-**5. Set up webhook**
+**6. Set up webhook**
    ```sh
    curl -X POST "https://api.telegram.org/bot<your-bot-token>/setWebhook?url=<your-cloud-run-url>"
    ```
 
 <br/>
 
-**6. Change git remote url to avoid accidental pushes to base project**
+**7. Change git remote url to avoid accidental pushes to base project**
    ```sh
    git remote set-url origin github_username/repo_name
    git remote -v 
    ```
+
+<br/>
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -286,19 +307,17 @@ The bot will extract the following details:
 - Date
 
 <p align="center">
-  <img src="images/image_input_screenshot.png" width="450" height="490"/>
+  <img src="images/demo_gif2_uncompressed.gif" width="450" height="909"/><br>
+  <sub>Gif of an expense recording instance with <b>multimodal input</b>. Using <code>gemini-2.0-flash-lite</code>'s multimodal capabilities, expenses can easily be parsed from images such as receipts, further easing the expense adding process.</sub>
 </p>
-
-*Screenshot of an expense recording instance with image input. Using `Gemini-1.5-Flash`'s multimodal capabilities, expenses can easily be parsed from images such as receipts, further easing the expense adding process.*
 
 ### **3️⃣ Edit Expense Details**
 Click **`🔧 Edit Expense`** and reply to a message from the bot with the relevant expense details, stating the edits to be made. 
 
 <p align="center">
-  <img src="images/edit_expense_screenshot.png" width="450" height="500"/>
+  <img src="images/edit_expense_screenshot.png" width="450" height="500"/><br>
+  <sub>Screenshot of an expense editing instance. The bot is able to find the exact expense in the database using the <code>expense_id</code> associated with every saved expense.</sub>
 </p>
-
-*Screenshot of an expense editing instance. The bot is able to find the exact expense in the database using the `expense_id` associated with every saved expense.*
 
 ### **4️⃣ Delete Expenses**
 Click **`🗑️ Delete Expenses`** and either reply to a message from the bot with the relevant expense details, or tell the bot to delete all expenses.
@@ -307,7 +326,8 @@ Click **`🗑️ Delete Expenses`** and either reply to a message from the bot w
 Click **`🔍 Analyse Expenses`** and ask the bot something about your expenses.
 
 <p align="center">
-  <img src="images/demo_gif_uncompressed.gif" width="450" height="911"/>
+  <img src="images/demo_gif_uncompressed.gif" width="450" height="911"/><br>
+  <sub>Probably the best feature! Users can simply ask the bot for anything, from a concise overview of their expenditure, to insights into their spending habits, to money-saving tips and tricks.</sub>
 </p>
 
 ### **6️⃣ Export Expenses**
