@@ -146,10 +146,11 @@ expense-tracker-tele-bot/
 │   ├── misc_handlers.py            
 │   ├── expenses_handler.py         
 │   └── export.py         
-│── services/                # Folder containing other key functions
+│── services/                # Folder containing key service functions
 │   ├── __init__.py          # (e.g. for LLM integration)
 │   ├── gemini_svc.py     
-│   └── expenses_svc.py  
+│   ├── expenses_svc.py
+│   └── sql_agent_svc.py
 │── feature_announcement.py  # Standalone script for broadcasting new features
 │── requirements.txt         # Dependencies
 │── Dockerfile               # For deployment
