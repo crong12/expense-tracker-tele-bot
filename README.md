@@ -242,7 +242,7 @@ To try this bot for yourself, follow these steps.
    # enable langsmith tracing
    os.environ["LANGSMITH_TRACING"] = "true"
    os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
-   os.environ["LANGSMITH_PROJECT"] = "expense-bot-deployed"
+   os.environ["LANGSMITH_PROJECT"] = "your-langsmith-project-name"
    os.environ["LANGSMITH_API_KEY"] = LANGSMITH_API_KEY
    ```
 
