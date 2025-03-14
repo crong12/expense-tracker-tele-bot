@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import Any
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableLambda, RunnableWithFallbacks
@@ -21,6 +22,15 @@ def str_to_json(text: str) -> dict:
     except json.JSONDecodeError:
         return "error: Failed to parse response as JSON"
 
+def get_current_date():
+    """Get current date for LLM to infer actual expense date from relative date provided by user
+    Returns:
+        today's date (str): e.g. '2025-03-14'
+        day associated with today's date (str): e.g. 'Friday'
+    """
+    now = datetime.today()
+    return now.strftime('%Y-%m-%d'), now.strftime('%A')
+
 # define util functions
 def create_tool_node_with_fallback(tools: list) -> RunnableWithFallbacks[Any, dict]:
     """
@@ -34,6 +44,8 @@ def create_tool_node_with_fallback(tools: list) -> RunnableWithFallbacks[Any, di
 def handle_tool_error(state) -> dict:
     """
     Surfaces error messages to the agent
+    Returns:
+        json object with error message to be passed to the agent
     """
     error = state.get("error")
     tool_calls = state["messages"][-1].tool_calls

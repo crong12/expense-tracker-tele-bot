@@ -27,14 +27,20 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if message.text:
         user_input = message.text
+        logging.info('calling gemini...')
         response = await process_expense_text(user_input)
+        logging.info('response generated')
 
     elif message.photo:
         image = message.photo[-1]
         image_file = await image.get_file()
         image_path = f"/tmp/{image_file.file_unique_id}.jpg"
         await image_file.download_to_drive(custom_path=image_path)
-        response = await process_expense_image(image_path)
+        if message.caption:
+            caption = message.caption
+            response = await process_expense_image(image_path, caption)
+        else:
+            response = await process_expense_image(image_path)
         os.remove(image_path)   # remove image after parsing completed
     else:
         await message.reply_text("⚠️ I'm sorry, I don't know what that is. Please send either a text message or photo!")
@@ -46,7 +52,7 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📌 <b>Here are the details I got from your text:</b>\n"
         f"📈 <b>Currency:</b> {json_response['currency']}\n"
-        f"💰 <b>Amount:</b> {json_response['price']}\n"
+        f"💰 <b>Amount:</b> {round(float(json_response['price']), 2)}\n"
         f"📂 <b>Category:</b> {json_response['category']}\n"
         f"📝 <b>Description:</b> {json_response['description']}\n"
         f"📅 <b>Date:</b> {json_response['date']}\n\n"
@@ -91,7 +97,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await context.bot.send_message(chat_id,
                                                 "<b>✅ Your expense has been updated successfully!</b>\n"
                                                 f"📈 <b>Currency:</b> {parsed_expense['currency']}\n"
-                                                f"💰 <b>Amount:</b> {parsed_expense['price']}\n"
+                                                f"💰 <b>Amount:</b> {round(float(parsed_expense['price']), 2)}\n"
                                                 f"📂 <b>Category:</b> {parsed_expense['category']}\n"
                                                 f"📝 <b>Description:</b> {parsed_expense['description']}\n"
                                                 f"📅 <b>Date:</b> {parsed_expense['date']}\n\n"
@@ -112,7 +118,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await context.bot.send_message(chat_id,
                                             "<b>✅ Your expense has been recorded successfully!</b>\n"
                                             f"📈 <b>Currency:</b> {parsed_expense['currency']}\n"
-                                            f"💰 <b>Amount:</b> {parsed_expense['price']}\n"
+                                            f"💰 <b>Amount:</b> {round(float(parsed_expense['price']), 2)}\n"
                                             f"📂 <b>Category:</b> {parsed_expense['category']}\n"
                                             f"📝 <b>Description:</b> {parsed_expense['description']}\n"
                                             f"📅 <b>Date:</b> {parsed_expense['date']}\n\n"
@@ -146,7 +152,7 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📌 <b>Here are the refined details:</b>\n"
         f"📈 <b>Currency:</b> {json_refined_response['currency']}\n"
-        f"💰 <b>Amount:</b> {json_refined_response['price']}\n"
+        f"💰 <b>Amount:</b> {round(float(json_refined_response['price']), 2)}\n"
         f"📂 <b>Category:</b> {json_refined_response['category']}\n"
         f"📝 <b>Description:</b> {json_refined_response['description']}\n"
         f"📅 <b>Date:</b> {json_refined_response['date']}\n\n"
@@ -192,7 +198,7 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🎯 <b>Here are the edited details:</b>\n"
         f"📈 <b>Currency:</b> {json_refined_response['currency']}\n"
-        f"💰 <b>Amount:</b> {json_refined_response['price']}\n"
+        f"💰 <b>Amount:</b> {round(float(json_refined_response['price']), 2)}\n"
         f"📂 <b>Category:</b> {json_refined_response['category']}\n"
         f"📝 <b>Description:</b> {json_refined_response['description']}\n"
         f"📅 <b>Date:</b> {json_refined_response['date']}\n\n"
