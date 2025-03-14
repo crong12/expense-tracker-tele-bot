@@ -5,7 +5,7 @@
 <br />
 <div align="center">
   <a href="https://github.com/crong12/expense-tracker-tele-bot">
-    <img src="images/telebot_logo.png" alt="Logo" width="400" height="328">
+    <img src="images/telebot_logo.PNG" alt="Logo" width="400" height="328">
   </a>
   <h1 align="center">Expense Tracking Telegram Bot</h1>
 
