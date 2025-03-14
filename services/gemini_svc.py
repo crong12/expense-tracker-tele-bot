@@ -69,9 +69,11 @@ async def process_expense_image(image_path: str, caption: str=None):
     today, day = get_current_date()
 
     prompt = f"""
-    Extract structured expense details from the image and provided image caption if applicable.
-    
-    Image caption: {caption}.
+    Extract structured expense details from the image and provided image caption.
+
+    IMPORTANT - Image caption: {caption or "No caption provided"}
+
+    Use the caption as an additional source of information when determining expense details.
     
     Instructions:
     - Look for the TOTAL amount (usually near the bottom, labeled as "TOTAL", "GRAND TOTAL", "AMOUNT DUE", etc.).

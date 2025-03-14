@@ -57,13 +57,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return AWAITING_DELETE_REQUEST
 
     if query.data == "analyse_expenses":
-        telegram_id = update.effective_user.id
-        if telegram_id != 107335297:
-            await query.message.reply_text("🚧 Feature under testing... Please select another option")
-            return WAITING_FOR_EXPENSE
-        else:
-            await query.message.reply_text("Sure, ask me anything about your expenses!")
-            return AWAITING_QUERY
+        await query.message.reply_text("Sure, ask me anything about your expenses!")
+        return AWAITING_QUERY
 
     if query.data == "quit":
         await query.message.reply_text("Goodbye! Type /start if you need me again.")

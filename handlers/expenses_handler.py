@@ -37,8 +37,8 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         image_path = f"/tmp/{image_file.file_unique_id}.jpg"
         await image_file.download_to_drive(custom_path=image_path)
         if message.caption:
-            caption = message.caption
-            response = await process_expense_image(image_path, caption)
+            img_caption = message.caption
+            response = await process_expense_image(image_path, caption=img_caption)
         else:
             response = await process_expense_image(image_path)
         os.remove(image_path)   # remove image after parsing completed
