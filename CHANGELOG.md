@@ -4,6 +4,12 @@ All notable changes to the bot will be documented here.
 
 <br/>
 
+## 1.3.3 - 2025-03-14
+
+### Changed
+- Now using Supabase instead of Cloud SQL for cost optimisation purposes (read: I am poor).
+
+
 ## 1.3.2 - 2025-03-14
 
 ### Fixed

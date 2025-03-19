@@ -173,9 +173,9 @@ To try this bot for yourself, follow these steps.
 ### Prerequisites
 
 - Python 3.8+ (this was built with 3.11)
-- Google Cloud SQL instance (PostgreSQL)
-  - For setting up a PostgreSQL database using Google Cloud SQL, I referred mainly to [this tutorial](https://cloud.google.com/sql/docs/postgres/connect-instance-cloud-shell).
-  - You may explore other SQL database platforms (e.g. Raspberry Pi, other cloud providers, etc.). The only file to be changed significantly will then be `database.py`.
+- Supabase account (PostgreSQL)
+  - Get started with Supabase [here](https://supabase.com/).
+  - You may explore other SQL database platforms (e.g. self-hosted via Raspberry Pi, other providers, etc.). As long as SQLAlchemy is still used to access the database, the only file to be changed should be `database.py`.
 - Google Cloud Project with Vertex AI and billing enabled 
   - To get started with Google Cloud Projects and Vertex AI, [this](https://cloud.google.com/vertex-ai/docs/start/cloud-environment) is a good starting point.
 - Google Cloud Secret Manager for storage of secret variables
@@ -203,20 +203,22 @@ To try this bot for yourself, follow these steps.
    # Create secrets
    gcloud secrets create TELE_BOT_TOKEN --replication-policy="automatic"
    gcloud secrets create REGION --replication-policy="automatic"
-   gcloud secrets create INSTANCE_NAME --replication-policy="automatic"
    gcloud secrets create DB_USER --replication-policy="automatic"
    gcloud secrets create DB_PASSWORD --replication-policy="automatic"
    gcloud secrets create DB_NAME --replication-policy="automatic"
+   gcloud secrets create DB_PORT --replication-policy="automatic"
+   gcloud secrets create DB_HOST --replication-policy="automatic"
    gcloud secrets create OPENAI_API_KEY --replication-policy="automatic"
    gcloud secrets create LANGSMITH_API_KEY --replication-policy="automatic"
 
    # Then add values
    gcloud secrets versions add TELE_BOT_TOKEN --data-file=<(echo "your-telegram-bot-token")
    gcloud secrets versions add REGION --data-file=<(echo "your-region")
-   gcloud secrets versions add INSTANCE_NAME --data-file=<(echo "your-cloud-sql-instance-name")
    gcloud secrets versions add DB_USER --data-file=<(echo "your-db-user")
    gcloud secrets versions add DB_PASSWORD --data-file=<(echo "your-db-password")
    gcloud secrets versions add DB_NAME --data-file=<(echo "your-db-name")
+   gcloud secrets versions add DB_PORT --data-file=<(echo "your-db-port")
+   gcloud secrets versions add DB_HOST --data-file=<(echo "your-db-host")
    gcloud secrets versions add OPENAI_API_KEY --data-file=<(echo "your-openai-api-key")
    gcloud secrets versions add LANGSMITH_API_KEY --data-file=<(echo "your-langsmith-api-key")
    ```
@@ -229,7 +231,6 @@ To try this bot for yourself, follow these steps.
    ```sh
    gcloud services enable run.googleapis.com \
     cloudbuild.googleapis.com \
-    sqladmin.googleapis.com \
     secretmanager.googleapis.com \
     aiplatform.googleapis.com
    ```
