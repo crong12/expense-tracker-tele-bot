@@ -80,10 +80,11 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             user_id = get_or_create_user(telegram_id)  # retrieve UUID associated with user
 
             # check if user is editing expense
-            expense_id_for_edit = context.user_data.get("editing_expense_id")
+            is_editing_expense = context.user_data.get("is_editing", False)
 
             # update expense
-            if expense_id_for_edit:
+            if is_editing_expense:
+                expense_id_for_edit = context.user_data.get("editing_expense_id")
                 expense_id = update_expense(
                     expense_id=expense_id_for_edit,
                     price=parsed_expense['price'],
@@ -92,18 +93,17 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     date=parsed_expense['date'],
                     currency=parsed_expense['currency']
                 )
-
-                if expense_id:
-                    await context.bot.send_message(chat_id,
-                                                "<b>✅ Your expense has been updated successfully!</b>\n"
-                                                f"📈 <b>Currency:</b> {parsed_expense['currency']}\n"
-                                                f"💰 <b>Amount:</b> {round(float(parsed_expense['price']), 2)}\n"
-                                                f"📂 <b>Category:</b> {parsed_expense['category']}\n"
-                                                f"📝 <b>Description:</b> {parsed_expense['description']}\n"
-                                                f"📅 <b>Date:</b> {parsed_expense['date']}\n\n"
-                                                f"<b>Expense ID:</b> {expense_id}\n",
-                                                parse_mode = 'HTML')
-                    await context.bot.send_message(chat_id, "Would you like to add a new expense? Type it below or send /start to go back to the main menu.")
+                context.user_data['is_editing'] = False
+                await context.bot.send_message(chat_id,
+                                            "<b>✅ Your expense has been updated successfully!</b>\n"
+                                            f"📈 <b>Currency:</b> {parsed_expense['currency']}\n"
+                                            f"💰 <b>Amount:</b> {round(float(parsed_expense['price']), 2)}\n"
+                                            f"📂 <b>Category:</b> {parsed_expense['category']}\n"
+                                            f"📝 <b>Description:</b> {parsed_expense['description']}\n"
+                                            f"📅 <b>Date:</b> {parsed_expense['date']}\n\n"
+                                            f"<b>Expense ID:</b> {expense_id}\n",
+                                            parse_mode = 'HTML')
+                await context.bot.send_message(chat_id, "Would you like to add a new expense? Type it below or send /start to go back to the main menu.")
 
             else:
                 # insert expense into the database
@@ -133,9 +133,9 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         logging.info("Transitioning to WAITING_FOR_EXPENSE")
         return WAITING_FOR_EXPENSE
 
-    else:
-        await context.bot.send_message(chat_id,"Sorry I got it wrong! What should the correct details be? Let me know, or type /quit to stop the recording.")
-        return AWAITING_REFINEMENT
+    # if not confirmation, do below
+    await context.bot.send_message(chat_id,"Sorry I got it wrong! What should the correct details be? Let me know, or type /quit to stop the recording.")
+    return AWAITING_REFINEMENT
 
 
 async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,6 +193,7 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     json_refined_response = str_to_json(refined_response)
 
     context.user_data["editing_expense_id"] = expense_id
+    context.user_data["is_editing"] = True
     context.user_data['parsed_expense'] = json_refined_response
 
     await update.message.reply_text(
@@ -318,7 +319,7 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ):
 
             if isinstance(chunk, tuple) and chunk[0] == 'custom':
-                # Extract custom progress report message to be sent to user
+                # extract custom progress report message to be sent to user
                 message_to_send = chunk[1]['custom']
 
                 await context.bot.edit_message_text(
@@ -328,32 +329,32 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
             if isinstance(chunk, tuple) and 'answer_query' in chunk[1]:
-                # Extract final answer and convert to Telegram-compatible Markdown format
-                final_answer = chunk[1]['answer_query']['messages'][-1].tool_calls[0]["args"]["final_answer"]
-                formatted_ans = escape(final_answer)
-
-                await context.bot.send_message(
-                        chat_id,
-                        f"{formatted_ans}\n\n"
-                        "Do you have any other questions? Let me know and I'll do my best to answer them\!",
-                        parse_mode='MarkdownV2'
-                    )
-                # Delete progress report message
+                # delete progress report message
                 await context.bot.delete_message(
                         chat_id=chat_id,
                         message_id=processing_msg.message_id
                     )
+
+                # extract final answer and convert to MarkdownV2
+                final_answer = chunk[1]['answer_query']['messages'][-1].tool_calls[0]["args"]["final_answer"]
+                formatted_ans = escape(final_answer)
+                await context.bot.send_message(
+                        chat_id,
+                        f"{formatted_ans}",
+                        parse_mode='MarkdownV2'
+                    )
+
                 context.user_data['expense_analysis'] = final_answer
                 return AWAITING_QUERY
 
-        # If we didn't get a proper final result
+        # if we didn't get a proper final result
         await context.bot.send_message(
             chat_id,
             "Sorry, I couldn't process your query properly. Please try again."
         )
 
     except Exception as e:
-        # Probably no longer an issue now that we're using gpt-4o-mini
+        # probably no longer an issue now that we're using gpt-4o-mini
         if '429' in str(e):
             await context.bot.send_message(
             chat_id,
