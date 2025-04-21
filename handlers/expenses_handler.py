@@ -52,7 +52,7 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📌 <b>Here are the details I got from your text:</b>\n"
         f"📈 <b>Currency:</b> {json_response['currency']}\n"
-        f"💰 <b>Amount:</b> {round(float(json_response['price']), 2)}\n"
+        f"💰 <b>Amount:</b> {json_response['price']:.2f}\n"
         f"📂 <b>Category:</b> {json_response['category']}\n"
         f"📝 <b>Description:</b> {json_response['description']}\n"
         f"📅 <b>Date:</b> {json_response['date']}\n\n"
@@ -97,7 +97,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await context.bot.send_message(chat_id,
                                             "<b>✅ Your expense has been updated successfully!</b>\n"
                                             f"📈 <b>Currency:</b> {parsed_expense['currency']}\n"
-                                            f"💰 <b>Amount:</b> {round(float(parsed_expense['price']), 2)}\n"
+                                            f"💰 <b>Amount:</b> {parsed_expense['price']:.2f}\n"
                                             f"📂 <b>Category:</b> {parsed_expense['category']}\n"
                                             f"📝 <b>Description:</b> {parsed_expense['description']}\n"
                                             f"📅 <b>Date:</b> {parsed_expense['date']}\n\n"
@@ -118,7 +118,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await context.bot.send_message(chat_id,
                                             "<b>✅ Your expense has been recorded successfully!</b>\n"
                                             f"📈 <b>Currency:</b> {parsed_expense['currency']}\n"
-                                            f"💰 <b>Amount:</b> {round(float(parsed_expense['price']), 2)}\n"
+                                            f"💰 <b>Amount:</b> {parsed_expense['price']:.2f}\n"
                                             f"📂 <b>Category:</b> {parsed_expense['category']}\n"
                                             f"📝 <b>Description:</b> {parsed_expense['description']}\n"
                                             f"📅 <b>Date:</b> {parsed_expense['date']}\n\n"
@@ -152,7 +152,7 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📌 <b>Here are the refined details:</b>\n"
         f"📈 <b>Currency:</b> {json_refined_response['currency']}\n"
-        f"💰 <b>Amount:</b> {round(float(json_refined_response['price']), 2)}\n"
+        f"💰 <b>Amount:</b> {json_refined_response['price']:.2f}\n"
         f"📂 <b>Category:</b> {json_refined_response['category']}\n"
         f"📝 <b>Description:</b> {json_refined_response['description']}\n"
         f"📅 <b>Date:</b> {json_refined_response['date']}\n\n"
@@ -199,7 +199,7 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🎯 <b>Here are the edited details:</b>\n"
         f"📈 <b>Currency:</b> {json_refined_response['currency']}\n"
-        f"💰 <b>Amount:</b> {round(float(json_refined_response['price']), 2)}\n"
+        f"💰 <b>Amount:</b> {json_refined_response['price']:.2f}\n"
         f"📂 <b>Category:</b> {json_refined_response['category']}\n"
         f"📝 <b>Description:</b> {json_refined_response['description']}\n"
         f"📅 <b>Date:</b> {json_refined_response['date']}\n\n"
@@ -303,13 +303,18 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     The user's UUID is {user_id}. ONLY query rows that belong to the user.
     
-    Previous answer you provided: {previous_answer} 
+    Previous answer you provided: {previous_answer}.
+    
+    If the previous answer is outdated or does not help with getting what the user is requesting for, disregard it.
     """
 
     # Send initial message
     processing_msg = await context.bot.send_message(
         chat_id, "🔍 Processing your expense query..."
     )
+    
+    final_answer = None # Variable to store the final answer when found
+    next_state = AWAITING_QUERY # Default next state if something goes wrong
 
     try:
         # Set up the stream handler
@@ -320,7 +325,7 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if isinstance(chunk, tuple) and chunk[0] == 'custom':
                 # extract custom progress report message to be sent to user
-                message_to_send = chunk[1]['custom']
+                message_to_send = chunk[1].get('custom', 'Processing...')
 
                 await context.bot.edit_message_text(
                     message_to_send,
@@ -329,29 +334,30 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
             if isinstance(chunk, tuple) and 'answer_query' in chunk[1]:
-                # delete progress report message
-                await context.bot.delete_message(
-                        chat_id=chat_id,
-                        message_id=processing_msg.message_id
-                    )
-
-                # extract final answer and convert to MarkdownV2
+                # extract final answer from chunk but do not exit loop yet
                 final_answer = chunk[1]['answer_query']['messages'][-1].tool_calls[0]["args"]["final_answer"]
-                formatted_ans = escape(final_answer)
-                await context.bot.send_message(
-                        chat_id,
-                        f"{formatted_ans}",
-                        parse_mode='MarkdownV2'
-                    )
-
-                context.user_data['expense_analysis'] = final_answer
-                return AWAITING_QUERY
-
-        # if we didn't get a proper final result
-        await context.bot.send_message(
-            chat_id,
-            "Sorry, I couldn't process your query properly. Please try again."
-        )
+        
+        # loop has ended, delete progress report message
+        await context.bot.delete_message(
+                chat_id=chat_id,
+                message_id=processing_msg.message_id
+            )
+        
+        # check for final answer
+        if final_answer:
+            # convert final answer to MarkdownV2 and send to user
+            formatted_ans = escape(final_answer)
+            await context.bot.send_message(
+                            chat_id,
+                            f"{formatted_ans}",
+                            parse_mode='MarkdownV2'
+            )
+        else:
+            # if we didn't get a proper final result
+            await context.bot.send_message(
+                chat_id,
+                "Sorry, I couldn't process your query properly. Please try again."
+            )
 
     except Exception as e:
         # probably no longer an issue now that we're using gpt-4o-mini

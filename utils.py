@@ -7,16 +7,19 @@ from langgraph.prebuilt import ToolNode
 
 def str_to_json(text: str) -> dict:
     """
-    Converts given string to json format.
-    
+    Converts given string to json format and formats output.
     Args:
         text (str): The string to be converted to json format.
-    
     Returns:
-        dict: The json object.
+        dict: The formatted json object.
     """
     try:
         json_response = json.loads(text)
+        
+        # Format dict fields
+        json_response["currency"] = json_response["currency"].upper()
+        json_response["category"] = json_response["category"].title()
+        json_response["description"] = json_response["description"].title()
         return json_response
 
     except json.JSONDecodeError:

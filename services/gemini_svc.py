@@ -1,7 +1,7 @@
 import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig, Part
 from tenacity import retry, wait_random_exponential
-from config import PROJECT_ID, REGION2, MODEL_NAME, TEMPERATURE
+from config import PROJECT_ID, REGION2, MODEL_NAME
 from utils import get_current_date
 
 vertexai.init(project=PROJECT_ID, location=REGION2)
@@ -19,9 +19,12 @@ expense_schema = {
         },
 }
 
-expense_config = GenerationConfig(temperature=TEMPERATURE,
+expense_config = GenerationConfig(temperature=0.2,
                                   response_mime_type="application/json",
                                   response_schema=expense_schema)
+
+def format_output(exp_dict):
+    exp_dict['currency'] = exp_dict['currency'].upper()
 
 # function to call gemini to process expense text
 # implement exponential backoff for load handling
@@ -41,12 +44,12 @@ async def process_expense_text(input_text: str):
     
     Today's date is {today}. Today is {day}. Extrapolate the expense date based on today's date.
     
-    Make sure to include: 
+    Important instructions for each field: 
     CURRENCY (if unspecified, default is SGD. Assume that $ is SGD, not USD. Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB));
     PRICE;
-    CATEGORY (think about what it should be based on the item or place provided);
+    CATEGORY (think about what it should be based on the item or place provided. Keep to 1 word if possible);
     DESCRIPTION (this can just be the place or store name, if specified. If a shop name is not specified or is unclear, be more detailed in the description, 
-    but make sure to only include whatever is already in the user input. return output in Title Case); 
+    but make sure to only include whatever is already in the user input.); 
     DATE (be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date).
     """
     response = await model.generate_content_async(
@@ -82,7 +85,7 @@ async def process_expense_image(image_path: str, caption: str=None):
     - Be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date.
     - For currency, default to SGD if unspecified. Assume $ means SGD unless context suggests otherwise.
     - Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB).
-    - For description, use the store/vendor name or a summary of the main purchase. Return output in Title Case.
+    - For description, use the store/vendor name or a summary of the main purchase.
     - For category, determine a suitable category based on the vendor or purchased items.
     """
 

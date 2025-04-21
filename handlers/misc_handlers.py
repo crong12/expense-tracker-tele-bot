@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
 from services import get_or_create_user
-from config import WAITING_FOR_EXPENSE, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_QUERY
+from config import WAITING_FOR_EXPENSE, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_QUERY, AWAITING_EXPORT_CONFIRMATION
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """bot initialisation; create start menu for user input"""
@@ -48,9 +48,14 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return AWAITING_EDIT
 
     if query.data == "export_expenses":
-        from handlers.export import export_expenses
-        await export_expenses(update, context)
-        return ConversationHandler.END
+        export_keyboard = [
+            [InlineKeyboardButton("Just this month's", callback_data="this_month"),
+             InlineKeyboardButton("All expenses", callback_data="all_expenses")]
+        ]
+        reply_markup = InlineKeyboardMarkup(export_keyboard)
+        await query.message.reply_text("Would you like this month's expenses or all your expenses so far?",
+                                       reply_markup=reply_markup)
+        return AWAITING_EXPORT_CONFIRMATION
 
     if query.data == "delete_expenses":
         await query.message.reply_text("Which expense would you like to delete? Reply to a message I sent with those expense details and I'll get rid of it for you. Alternatively, send 'all' to delete all past expenses.")

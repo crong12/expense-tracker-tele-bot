@@ -6,10 +6,10 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
 from handlers import start, process_insert, process_edit, button_click, \
     reject_unexpected_messages, refine_details, handle_confirmation, quit_bot,\
-    process_delete, delete_expense_confirmation, process_query
+    process_delete, delete_expense_confirmation, process_query, export_expenses
 from config import BOT_TOKEN, LANGSMITH_API_KEY, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, \
     AWAITING_REFINEMENT, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, \
-    AWAITING_QUERY
+    AWAITING_QUERY, AWAITING_EXPORT_CONFIRMATION
 
 # enable langsmith tracing
 os.environ["LANGSMITH_TRACING"] = "true"
@@ -40,7 +40,8 @@ conv_handler = ConversationHandler(
         AWAITING_DELETE_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_delete)],
         AWAITING_DELETE_CONFIRMATION: [CallbackQueryHandler(delete_expense_confirmation)],
         AWAITING_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_query),
-                         CallbackQueryHandler(button_click)]
+                         CallbackQueryHandler(button_click)],
+        AWAITING_EXPORT_CONFIRMATION: [CallbackQueryHandler(export_expenses)]
     },
     fallbacks=[CommandHandler("start", start), CommandHandler("quit", quit_bot)],
 )

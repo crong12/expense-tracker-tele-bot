@@ -4,6 +4,19 @@ All notable changes to the bot will be documented here.
 
 <br/>
 
+## 1.4 &ndash; 2025-04-21
+
+### Added
+- Option to export expenses for current month only or all expenses so far.
+
+### Changed
+- Formatting of parsed expense details &ndash; enforce 2 decimal places for amounts, and title case for category & descriptions. Simplifies/ shortens prompts as the LLM doesn't need to worry about formatting its output.
+- Agent workhorse for final expense analysis output. Previously used `gpt-4o-mini`, but realised it was summing expenses wrongly! Now using `o4-mini`. Funny how a simple swap of letters can mean a world of difference in performance.
+
+### Fixed
+- Exported expenses now sorted by date.
+
+
 ## 1.3.4 &ndash; 2025-03-29
 
 ### Changed

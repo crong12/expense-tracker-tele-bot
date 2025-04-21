@@ -1,7 +1,7 @@
 import csv
 import re
 from datetime import datetime
-from sqlalchemy import select
+from sqlalchemy import select, extract
 from database import SessionLocal, Users, Expenses
 
 def get_or_create_user(telegram_id):
@@ -67,16 +67,31 @@ def update_expense(expense_id, price, category, description, date, currency):
     finally:
         session.close()
 
-def export_expenses_to_csv(user_id, tele_handle):
+def export_expenses_to_csv(user_id, tele_handle, time_range):
     """export user's expenses to CSV"""
     session = SessionLocal()
     file_path = f"expenses_{tele_handle}.csv"  # name the file based on user's telegram handle
 
     try:
-        # only query rows that belong to the user
-        result = session.execute(select(Expenses).where(Expenses.user_id == user_id))
-        relevant_expenses = result.scalars().all()
+        if time_range == 'this_month':
+            # get current month and year
+            current_month = datetime.now().month
+            current_year = datetime.now().year
+            # only get expenses for this month
+            result = session.execute(
+                select(Expenses)
+                .where(Expenses.user_id == user_id)
+                .where(extract('month', Expenses.date) == current_month)
+                .where(extract('year', Expenses.date) == current_year)
+                .order_by(Expenses.date))
+        else:
+            # get all expenses
+            result = session.execute(
+                select(Expenses)
+                .where(Expenses.user_id == user_id)
+                .order_by(Expenses.date))
 
+        relevant_expenses = result.scalars().all()
         if not relevant_expenses:    # no expenses found
             return None
 

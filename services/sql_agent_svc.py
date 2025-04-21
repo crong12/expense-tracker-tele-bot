@@ -14,17 +14,22 @@ from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.types import StreamWriter
 from database import SessionLocal
 from utils import create_tool_node_with_fallback
-from config import AGENT_LLM, TEMPERATURE, OPENAI_API_KEY
+from config import OPENAI_API_KEY
 
 # set openai api key as env var
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 # initialise workhorse of our agent
 llm = ChatOpenAI(
-    model=AGENT_LLM,
-    temperature=TEMPERATURE,
+    model="gpt-4o-mini",
+    temperature=0,
     max_retries=10
     )
+
+final_llm = ChatOpenAI(
+    model="o4-mini",        # does not support temperature changes
+    max_retries=10
+)
 
 class State(TypedDict):
     """Define the state for the agent"""
@@ -82,10 +87,9 @@ If the query requires expense data (totals, history, breakdowns, etc.), respond 
 "I'll need to check your expense data to answer this question."
 
 If the query can be answered without database access (general questions, greetings, etc.), 
+or if the previously provided answer contains enough information to answer the user's query,
 respond EXACTLY with: 
 "This question can be answered directly."
-
-
 """
 
 direct_response_prompt = ChatPromptTemplate.from_messages([
@@ -93,7 +97,7 @@ direct_response_prompt = ChatPromptTemplate.from_messages([
     ("placeholder", "{messages}")
 ])
 
-direct_response = direct_response_prompt | llm.bind_tools([SubmitFinalAnswer])
+direct_response = direct_response_prompt | llm
 
 async def direct_response_node(state: State, writer: StreamWriter):
     writer({"custom": "💭 Determining if I can answer directly..."})
@@ -207,6 +211,7 @@ ANSWER_QUERY_SYSTEM = """You are a helpful expert data analyst and financial ass
 
 If SQL results are received, when reviewing its results:
 1. First, directly answer the user's original question with clear, actionable insights
+2. If calculations are needed, perform them carefully one by one.
 2. Present the most important findings upfront in a concise summary
 3. For financial/metric analysis, include relevant comparisons (% changes, trends, outliers)
 4. Provide 1-2 unexpected or valuable observations from the data that the user may not have specifically asked for
@@ -224,7 +229,7 @@ answer_query_prompt = ChatPromptTemplate.from_messages([
     ("placeholder", "{messages}"),
 ])
 
-answer_query = answer_query_prompt | llm.bind_tools([SubmitFinalAnswer],
+answer_query = answer_query_prompt | final_llm.bind_tools([SubmitFinalAnswer],
                                                           tool_choice='SubmitFinalAnswer')
 
 
