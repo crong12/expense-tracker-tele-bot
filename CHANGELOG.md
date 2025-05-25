@@ -4,6 +4,13 @@ All notable changes to the bot will be documented here.
 
 <br/>
 
+## 1.4.1 &ndash; 2025-05-25
+
+### Fixed
+- Minor bug fixes to querying behaviour/logic of expense analysis agent.
+- Minor bug fix regarding output formatting.
+
+
 ## 1.4 &ndash; 2025-04-21
 
 ### Added

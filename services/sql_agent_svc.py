@@ -1,9 +1,10 @@
 import json
 import os
+import re
 from datetime import datetime
 from typing import Annotated, Literal
-from langchain_core.tools import tool
 from sqlalchemy.sql import text
+from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
@@ -15,6 +16,8 @@ from langgraph.types import StreamWriter
 from database import SessionLocal
 from utils import create_tool_node_with_fallback
 from config import OPENAI_API_KEY
+from .expenses_svc import get_categories
+
 
 # set openai api key as env var
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
@@ -158,18 +161,16 @@ QUERY_GEN_SYSTEM = f"""You are a SQL expert with a strong attention to detail.
 Given an input question, output a syntactically correct PostgreSQL query to run, then look at the results of the query and return the answer.
 
 Table name: 'expenses'
-
 Schema: 
-- Column('id', Integer(), primary_key=True, nullable=False),
-- Column('user_id', UUID(), ForeignKey('users.id'), nullable=False),
-- Column('price', Numeric(), nullable=False),
-- Column('category', String(), nullable=False),
-- Column('description', String(), nullable=False),
-- Column('date', Date(), nullable=False),
-- Column('currency', String(), nullable=False)
+- Column('id', Integer(), primary_key=True)
+- Column('user_id', UUID(), ForeignKey('users.id'))
+- Column('price', Numeric())
+- Column('category', String())
+- Column('description', String())
+- Column('date', Date())
+- Column('currency', String())
 
 When generating the query:
-
 DO NOT format the text in the query.
 DO NOT use double quotes. 
 DO NOT use escape characters.
@@ -179,9 +180,11 @@ return "SELECT user_id, SUM(price) AS total_spent FROM expenses WHERE date BETWE
 
 Today's date is {today}. Today is {day}. Infer the date requested by the user based on today's date.
 
+IMPORTANT:
 Only query rows that belong to the user who made the query, based on the provided user_id in the query.
-
-Category and description items should be in Title Case.
+Use only the list of categories that are provided in the context. Do not make up or assume categories that are not listed.
+Based on the user's query, determine which category to use in the query.
+Use the ILIKE operator to match search terms case-insensitively.
 
 You can order the results by a relevant column to return the most interesting examples in the database.
 Never query for all the columns from a specific table, only the relevant columns given the question.
@@ -190,18 +193,24 @@ Always query for currency as that is important information.
 If you get an error while executing a query, rewrite the query and try again.
 
 If you get an empty result set, you should try to rewrite the query to get a non-empty result set. 
-NEVER make stuff up if you don't have enough information to answer the query... just say you don't have enough information.
 
 DO NOT make any DML statements (INSERT, UPDATE, DELETE, DROP etc.) to the database."""
 
 query_gen_prompt = ChatPromptTemplate.from_messages(
     [("system", QUERY_GEN_SYSTEM), ("placeholder", "{messages}")]
 )
-query_gen = query_gen_prompt | llm
-
 
 async def query_gen_node(state: State, writer: StreamWriter):
     writer({"custom": "📝 Generating appropriate database query..."})
+
+    # Create a new prompt with categories context
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", QUERY_GEN_SYSTEM),
+        ("placeholder", "{messages}")
+    ])
+
+    # Use the modified prompt
+    query_gen = prompt | llm
     message = await query_gen.ainvoke(state)
     return {"messages": [message]}
 

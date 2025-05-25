@@ -23,9 +23,6 @@ expense_config = GenerationConfig(temperature=0.2,
                                   response_mime_type="application/json",
                                   response_schema=expense_schema)
 
-def format_output(exp_dict):
-    exp_dict['currency'] = exp_dict['currency'].upper()
-
 # function to call gemini to process expense text
 # implement exponential backoff for load handling
 @retry(wait=wait_random_exponential(multiplier=1, max=60))

@@ -7,7 +7,8 @@ from database import SessionLocal, Users, Expenses
 def get_or_create_user(telegram_id):
     """Checks if a user exists in the database; if not, creates a new one"""
     session = SessionLocal()
-    user = session.query(Users).filter(Users.telegram_id == telegram_id).first()
+    user = session.query(Users)\
+        .filter(Users.telegram_id == telegram_id).first()
     if user:
         return user.id
 
@@ -16,6 +17,18 @@ def get_or_create_user(telegram_id):
     session.commit()
     session.refresh(new_user)
     return new_user.id
+
+def get_categories(user_id):
+    """Get all expense categories used by a specific user"""
+    session = SessionLocal()
+    try:
+        categories = session.query(Expenses.category)\
+            .filter(Expenses.user_id == user_id)\
+            .distinct()\
+            .all()
+        return [category[0] for category in categories]
+    finally:
+        session.close()
 
 def insert_expense(user_id, price, category, description, date, currency):
     """Inserts a new expense record into the database"""
@@ -46,7 +59,8 @@ def insert_expense(user_id, price, category, description, date, currency):
 def update_expense(expense_id, price, category, description, date, currency):
     """updates an existing expense record in the database"""
     session = SessionLocal()
-    expense = session.query(Expenses).filter(Expenses.id == expense_id).first()
+    expense = session.query(Expenses)\
+        .filter(Expenses.id == expense_id).first()
 
     expense.price = price
     expense.category = category
@@ -158,7 +172,8 @@ def delete_all_expenses(user_id):
     session = SessionLocal()
 
     try:
-        session.query(Expenses).filter(Expenses.user_id == user_id).delete()
+        session.query(Expenses)\
+            .filter(Expenses.user_id == user_id).delete()
         session.commit()
         return True
 
@@ -174,9 +189,8 @@ def delete_specific_expense(user_id, expense_id):
     session = SessionLocal()
 
     try:
-        expense = session.query(Expenses).filter(
-            Expenses.user_id == user_id, Expenses.id == expense_id
-        ).first()
+        expense = session.query(Expenses)\
+            .filter(Expenses.user_id == user_id, Expenses.id == expense_id).first()
 
         if expense:
             session.delete(expense)

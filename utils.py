@@ -5,6 +5,10 @@ from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableLambda, RunnableWithFallbacks
 from langgraph.prebuilt import ToolNode
 
+def title_case(s: str) -> str:
+    """helper function to format strings to title case"""
+    return ' '.join(word[0].upper() + word[1:].lower() for word in s.split())
+
 def str_to_json(text: str) -> dict:
     """
     Converts given string to json format and formats output.
@@ -15,11 +19,11 @@ def str_to_json(text: str) -> dict:
     """
     try:
         json_response = json.loads(text)
-        
+
         # Format dict fields
         json_response["currency"] = json_response["currency"].upper()
-        json_response["category"] = json_response["category"].title()
-        json_response["description"] = json_response["description"].title()
+        json_response["category"] = title_case(json_response["category"])
+        json_response["description"] = title_case(json_response["description"])
         return json_response
 
     except json.JSONDecodeError:

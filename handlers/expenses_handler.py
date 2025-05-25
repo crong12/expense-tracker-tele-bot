@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 from md2tgmd import escape
 from services.gemini_svc import process_expense_text, process_expense_image, refine_expense_details
 from services.expenses_svc import insert_expense, update_expense, get_or_create_user, \
-    exact_expense_matching, delete_all_expenses, delete_specific_expense
+    exact_expense_matching, delete_all_expenses, delete_specific_expense, get_categories
 from services.sql_agent_svc import analyser_agent
 from utils import str_to_json
 from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, \
@@ -294,6 +294,7 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     telegram_id = update.effective_user.id
     user_id = get_or_create_user(telegram_id)  # retrieve UUID associated with user
+    categories = get_categories(user_id)
     chat_id = update.message.chat_id
 
     user_query = update.message.text
@@ -306,15 +307,16 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Previous answer you provided: {previous_answer}.
     
     If the previous answer is outdated or does not help with getting what the user is requesting for, disregard it.
+    
+    The list of categories in the user's database is: {categories}.
     """
 
     # Send initial message
     processing_msg = await context.bot.send_message(
         chat_id, "🔍 Processing your expense query..."
     )
-    
+
     final_answer = None # Variable to store the final answer when found
-    next_state = AWAITING_QUERY # Default next state if something goes wrong
 
     try:
         # Set up the stream handler
@@ -336,13 +338,13 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if isinstance(chunk, tuple) and 'answer_query' in chunk[1]:
                 # extract final answer from chunk but do not exit loop yet
                 final_answer = chunk[1]['answer_query']['messages'][-1].tool_calls[0]["args"]["final_answer"]
-        
+
         # loop has ended, delete progress report message
         await context.bot.delete_message(
                 chat_id=chat_id,
                 message_id=processing_msg.message_id
             )
-        
+
         # check for final answer
         if final_answer:
             # convert final answer to MarkdownV2 and send to user
@@ -352,12 +354,14 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             f"{formatted_ans}",
                             parse_mode='MarkdownV2'
             )
+            return AWAITING_QUERY
         else:
             # if we didn't get a proper final result
             await context.bot.send_message(
                 chat_id,
                 "Sorry, I couldn't process your query properly. Please try again."
             )
+            return AWAITING_QUERY
 
     except Exception as e:
         # probably no longer an issue now that we're using gpt-4o-mini
