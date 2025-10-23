@@ -8,10 +8,11 @@ All notable changes to the bot will be documented here.
 
 ### Added
 - Bot persistence (mainly to persist conversation states at this point). 
-- Whitelist approach for authorised bot users.
+- User whitelist approach to only allow authorised users to try the bot.
 
 ### Changed
-- LLM expense parser &ndash; updated to use `gemini-2.5-flash-lite` from `gemini-2.0-flash-lite` as I foresee the latter being deprecated soon.
+- LLM expense parser &ndash; updated to use `gemini-2.5-flash-lite` as I foresee the 2.0 predecessor being deprecated soon.
+- LLM agent workhorses &ndash; now using `gpt-5-nano` and `gpt-5-mini` for greater cost efficiency and performance.
 
 
 ## 1.4.1 &ndash; 2025-05-25
