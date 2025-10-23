@@ -15,3 +15,12 @@ deploy.ps1
 
 # ignore broadcast message testing script
 feature_announcement_testing.py
+
+# ignore test script
+main_test.py
+
+# ignore local postgres persistence script
+postgres_persistence.py
+
+# ignore additional docs folder
+additional_docs/

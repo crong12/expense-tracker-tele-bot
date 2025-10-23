@@ -39,11 +39,10 @@ async def process_expense_text(input_text: str):
     prompt = f"""
     Extract structured expense details from this text: {input_text}. 
     
-    Today's date is {today}. Today is {day}. Extrapolate the expense date based on today's date.
+    Today's date is {today}. Today is {day}. Infer the expense date based on today's date.
     
     Important instructions for each field: 
-    CURRENCY (if unspecified, default is SGD. Assume that $ is SGD, not USD. Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB));
-    PRICE;
+    CURRENCY (if unspecified, default is GBP. Assume that $ is SGD, not USD. Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB));
     CATEGORY (think about what it should be based on the item or place provided. Keep to 1 word if possible);
     DESCRIPTION (this can just be the place or store name, if specified. If a shop name is not specified or is unclear, be more detailed in the description, 
     but make sure to only include whatever is already in the user input.); 
@@ -57,7 +56,7 @@ async def process_expense_text(input_text: str):
 # function to call gemini to process expense (e.g. receipt) image
 # implement exponential backoff for load handling
 @retry(wait=wait_random_exponential(multiplier=1, max=60))
-async def process_expense_image(image_path: str, caption: str=None):
+async def process_expense_image(image_path: str, caption: str=""):
     """parses expense details from image input
     Args:
         - image_path (str) : path to image sent by user
@@ -80,7 +79,7 @@ async def process_expense_image(image_path: str, caption: str=None):
     - Today's date is {today}. Today is {day}. Extrapolate the expense date based on today's date. 
     - Use receipt date if available; otherwise, infer a reasonable date based on context.
     - Be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date.
-    - For currency, default to SGD if unspecified. Assume $ means SGD unless context suggests otherwise.
+    - For currency, default to GBP if unspecified. Assume $ means SGD unless context suggests otherwise.
     - Make sure to return only the 3-letter symbol (example: GBP, SGD, EUR, JPY, MYR, RMB).
     - For description, use the store/vendor name or a summary of the main purchase.
     - For category, determine a suitable category based on the vendor or purchased items.

@@ -115,7 +115,17 @@ Example: {'user_query': 'Please summarize my expenditure for this month.'}
 
 <br/>
 
-In the (near?) future, I want to extend this agentic workflow to the entire process. Doing so will require a much more complex workflow graph with more complicated state management, and possibly a multi-agent system. However, the possibilities are endless and it's something I'm really excited about. Stay tuned! 🚨
+### ... What's Next?
+
+While I've successfully built the bot's basic functions and it works as it should, it's far from perfect. There's no real end goal to this pet project of mine, and I fully intend to keep iterating and adding features/ QoL improvements to enhance the process as a whole. 
+
+Some features in the pipeline include:
+
+-  Implementing persistence in the bot (i.e. memory) which will allow the bot to remember conversation states upon prolonged inactivity (during which the Cloud Run instance may shut down). 
+- Storing user preferences &ndash; this links back to persistence as well. I want to allow users to indicate their preferred currencies and expense categories (e.g. some users may prefer "Food and Drink", while others may want to store "Food" and "Drink" expenses under separate categories).
+- Connecting the bot to a user's [Wise](https://wise.com/gb/blog/) account (I chose Wise instead of other banking apps because I primarily use Wise, oops). The idea is that every transaction will trigger a message being sent from the bot to the user, asking if they want to add that expense into their list. I'm particularly excited about this feature because this will be a huge automation step, taking a big part of the pain of having to consciously add expenses. 
+
+Stay tuned for more updates! 🎯
 
 ### Built With
 

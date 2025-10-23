@@ -1,12 +1,14 @@
 import uuid
+from datetime import datetime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, Column, UUID, BigInteger, \
-    String, Integer, ForeignKey, Numeric, Date
+    String, Integer, ForeignKey, Numeric, Date, DateTime, Text
 from config import DB_USER, DB_PASSWORD, DB_NAME, DB_HOST, DB_PORT
 
 DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+PERSISTENCE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # create connection engine
 engine = create_engine(DATABASE_URL, poolclass=NullPool)
@@ -32,3 +34,11 @@ class Expenses(Base):
     description = Column(String, nullable=False)
     date = Column(Date, nullable=False)
     currency = Column(String, nullable=False)
+
+class WhitelistedUsers(Base):
+    """Whitelisted users table for access control"""
+    __tablename__ = "whitelisted_users"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = Column(String, unique=True, nullable=False)
+    added_date = Column(DateTime, nullable=False, default=datetime.utcnow)
+    notes = Column(Text, nullable=True)
