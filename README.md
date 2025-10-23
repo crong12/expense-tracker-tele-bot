@@ -380,9 +380,9 @@ If you have a suggestion to improve the bot, be it functionality or even best pr
 
 <br/>
 
-**Caveat:** I am extremely busy with my full-time MSc course and upcoming internship, so unfortunately new features in the pipeline may not come anytime soon. I do love working on this project (as I'm using it on a daily basis), and will definitely work on implementing new features whenever I can.
+**Caveat:** I am going to be extremely busy with my 9-5, so unfortunately new features in the pipeline may not materialise anytime soon. I do love working on this project (as I'm using it on a daily basis), and will definitely work on implementing new features whenever I can.
 
-Also, while my bot is currently up and running, testing will only be open to a bunch of close friends as I only have that many Google Cloud/ OpenAI credits 😔 However, I implore you to set the bot up for yourself (first-time Google Cloud users get a bunch of free credits anyway) and give it a try! 🚀
+Also, while my bot is currently up and running, testing will only be open to a bunch of close friends as the cost of running this bot is entirely out of pocket 😔 However, I implore you to set the bot up for yourself (first-time Google Cloud users get a bunch of free credits anyway) and give it a try! 🚀
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
