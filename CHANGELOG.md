@@ -4,6 +4,16 @@ All notable changes to the bot will be documented here.
 
 <br/>
 
+## 1.4.2 &ndash; 2025-10-23
+
+### Added
+- Bot persistence (mainly to persist conversation states at this point). 
+- Whitelist approach for authorised bot users.
+
+### Changed
+- LLM expense parser &ndash; updated to use `gemini-2.5-flash-lite` from `gemini-2.0-flash-lite` as I foresee the latter being deprecated soon.
+
+
 ## 1.4.1 &ndash; 2025-05-25
 
 ### Fixed
