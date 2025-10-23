@@ -14,7 +14,7 @@ from langgraph.graph import END, StateGraph, START
 from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.types import StreamWriter
 from database import SessionLocal
-from utils import create_tool_node_with_fallback
+from utils import create_tool_node_with_fallback    
 from config import OPENAI_API_KEY
 from .expenses_svc import get_categories
 
@@ -22,15 +22,14 @@ from .expenses_svc import get_categories
 # set openai api key as env var
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
-# initialise workhorse of our agent
+# initialise agent workhorse LLMs
 llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0,
+    model="gpt-5-nano",
     max_retries=10
     )
 
 final_llm = ChatOpenAI(
-    model="o4-mini",        # does not support temperature changes
+    model="gpt-5-mini",      
     max_retries=10
 )
 

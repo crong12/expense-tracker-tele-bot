@@ -351,19 +351,21 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             formatted_ans = escape(final_answer)
             await context.bot.send_message(
                             chat_id,
-                            f"{formatted_ans}",
+                            f"{formatted_ans}\n\nType /start to return to the main menu\\.",
                             parse_mode='MarkdownV2'
             )
+            # Store answer for potential follow-up questions
+            context.user_data['expense_analysis'] = final_answer
             return AWAITING_QUERY
         else:
             # if we didn't get a proper final result
             await context.bot.send_message(
                 chat_id,
-                "Sorry, I couldn't process your query properly. Please try again."
+                "Sorry, I couldn't process your query properly. Please try again or type /start to return to the main menu."
             )
             return AWAITING_QUERY
 
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-except
         # probably no longer an issue now that we're using gpt-4o-mini
         if '429' in str(e):
             await context.bot.send_message(

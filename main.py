@@ -1,7 +1,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
 # local version of postgres persistence until ptbcontrib PR is merged
@@ -33,6 +33,10 @@ persistence = PostgresPersistence(
     url=PERSISTENCE_URL
 )
 bot_app = Application.builder().token(BOT_TOKEN).persistence(persistence).build()
+
+# Track processed update IDs to prevent duplicate processing from Telegram retries
+processed_updates = set()
+MAX_PROCESSED_UPDATES = 1000  # Keep last 1000 to prevent memory issues
 
 # Define conversation handler with persistence enabled
 conv_handler = ConversationHandler(
@@ -76,7 +80,7 @@ async def lifespan(app: FastAPI):
         else:
             logging.warning("No persistence configured!")
 
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-except
         logging.error("Error starting bot: %s", str(e))
         raise
 
@@ -86,7 +90,7 @@ async def lifespan(app: FastAPI):
     try:
         await bot_app.stop()
         logging.info("Bot has shut down.")
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-except
         logging.error("Error stopping bot: %s", str(e))
 
 # Initialize FastAPI app with the lifespan context manager
@@ -97,9 +101,19 @@ app = FastAPI(lifespan=lifespan)
 async def root():
     return {"status": "Bot is running!"}
 
+
+async def process_telegram_update(update: Update):
+    """Process telegram update in background"""
+    try:
+        await bot_app.process_update(update)
+        logging.info("Successfully processed update %d", update.update_id)
+    except Exception as e:
+        logging.error("Error processing update %d: %s", update.update_id, str(e))
+
+
 # Webhook endpoint for Telegram updates
 @app.post("/")
-async def webhook(request: Request):
+async def webhook(request: Request, background_tasks: BackgroundTasks):
     """Handles webhook updates from Telegram"""
     try:
         update_dict = await request.json()
@@ -107,10 +121,23 @@ async def webhook(request: Request):
 
         update = Update.de_json(update_dict, bot_app.bot)
 
+        # Check for duplicate updates to prevent reprocessing from Telegram retries
+        update_id = update.update_id
+        if update_id in processed_updates:
+            logging.warning("Duplicate update %d detected, skipping", update_id)
+            return {"status": "ok"}
+
+        # Track this update
+        processed_updates.add(update_id)
+        # Keep set size manageable
+        if len(processed_updates) > MAX_PROCESSED_UPDATES:
+            # Remove oldest item to prevent unbounded growth
+            processed_updates.pop()
+
         # Defense in depth: Check whitelist before processing any update
         if update and update.effective_user:
             username = update.effective_user.username
-            
+
             # Check if user has no username set
             if not username:
                 await bot_app.bot.send_message(
@@ -119,7 +146,7 @@ async def webhook(request: Request):
                          "Please set a username in your Telegram settings and try again."
                 )
                 return {"status": "ok"}
-            
+
             # Check if user is whitelisted
             if not is_user_whitelisted(username):
                 logging.warning(
@@ -136,8 +163,8 @@ async def webhook(request: Request):
                 # Return ok to Telegram but don't process the update further
                 return {"status": "ok"}
 
-        # Process the update asynchronously
-        await bot_app.process_update(update)
+        # Add to background tasks and return immediately to prevent Telegram timeout retries
+        background_tasks.add_task(process_telegram_update, update)
         return {"status": "ok"}
 
     except (Exception) as e: # pylint: disable=broad-except
