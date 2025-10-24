@@ -14,7 +14,7 @@ from langgraph.graph import END, StateGraph, START
 from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.types import StreamWriter
 from database import SessionLocal
-from utils import create_tool_node_with_fallback    
+from utils import create_tool_node_with_fallback
 from config import OPENAI_API_KEY
 from .expenses_svc import get_categories
 
@@ -24,12 +24,13 @@ os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 # initialise agent workhorse LLMs
 llm = ChatOpenAI(
-    model="gpt-5-nano",
+    model="gpt-4.1-nano",
     max_retries=10
     )
 
 final_llm = ChatOpenAI(
-    model="gpt-5-mini",      
+    model="gpt-5-mini",
+    reasoning_effort="minimal",
     max_retries=10
 )
 
@@ -157,7 +158,7 @@ async def model_check_query(state: State, writer: StreamWriter) -> dict[str, lis
 # Generate a query based on the question and schema
 QUERY_GEN_SYSTEM = f"""You are a SQL expert with a strong attention to detail.
 
-Given an input question, output a syntactically correct PostgreSQL query to run, then look at the results of the query and return the answer.
+Given an input question, output a syntactically correct PostgreSQL query to run.
 
 Table name: 'expenses'
 Schema: 
@@ -181,6 +182,7 @@ Today's date is {today}. Today is {day}. Infer the date requested by the user ba
 
 IMPORTANT:
 Only query rows that belong to the user who made the query, based on the provided user_id in the query.
+Use user_id only in WHERE for filtering; do not SELECT user_id or id unless strictly required for computation.
 Use only the list of categories that are provided in the context. Do not make up or assume categories that are not listed.
 Based on the user's query, determine which category to use in the query.
 Use the ILIKE operator to match search terms case-insensitively.
@@ -215,21 +217,32 @@ async def query_gen_node(state: State, writer: StreamWriter):
 
 
 # Add a node to formulate a final answer based on provided info
-ANSWER_QUERY_SYSTEM = """You are a helpful expert data analyst and financial assistant that helps answer the user's query with all the information you have.
+ANSWER_QUERY_SYSTEM = """You are a helpful expert data analyst and financial assistant. Answer the user’s query using only the information you have.
+`
+When SQL results are available:
+1) Start with a concise answer to the user’s question (what matters most first).
+2) If calculations are needed, perform them carefully and present only final figures.
+3) Include one useful comparison (trend, % change, or notable outlier), if relevant.
+4) Add 1–2 short, valuable observations that the user didn’t explicitly ask for.
 
-If SQL results are received, when reviewing its results:
-1. First, directly answer the user's original question with clear, actionable insights
-2. If calculations are needed, perform them carefully one by one.
-2. Present the most important findings upfront in a concise summary
-3. For financial/metric analysis, include relevant comparisons (% changes, trends, outliers)
-4. Provide 1-2 unexpected or valuable observations from the data that the user may not have specifically asked for
-5. Use a friendly, enthusiastic tone while maintaining professionalism
+When no SQL results are available:
+- Answer the user’s question directly and helpfully without asking for data.
 
-If no SQL results are received, then the user's query did not warrant a database query. In that case, simply answer the user's query in a friendly and helpful manner.
+Formatting:
+- Reply in Markdown with short sections: “Summary”, “Details”, and (if helpful) “Next steps”.
+- Keep default responses under 200 words unless the user requests more.
+- Show final numbers only; don’t reveal internal reasoning steps.
 
-Format your response in Markdown. 
+Safety and privacy:
+- Do NOT include any internal identifiers or system details: no user_id, UUIDs, ids, chat_id, SQL text, table/column names, or tool function names.
+- If such fields appear in tool outputs or prior messages, ignore them and never surface them.
 
-Remember that the user is looking for both answers and insights - help them understand what the data really means for their financial planning.
+Clarity and numerics:
+- Use the currency codes present in the data; do not convert unless the user asks.
+- Round monetary amounts to 2 decimal places and include the currency code.
+- If the request is ambiguous or data is insufficient, ask exactly one concise clarifying question.
+
+Your goal is to give accurate, high-signal insights without exposing internal identifiers or implementation details.
 """
 
 answer_query_prompt = ChatPromptTemplate.from_messages([

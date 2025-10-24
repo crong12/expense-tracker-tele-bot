@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, BackgroundTasks
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
+from telegram.request import HTTPXRequest
+from telegram.error import TimedOut, NetworkError
+from telegram.ext import ContextTypes
 # local version of postgres persistence until ptbcontrib PR is merged
 # from ptbcontrib.postgres_persistence import PostgresPersistence
 from postgres_persistence import PostgresPersistence
@@ -28,11 +31,19 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-# Create the bot application with PostgreSQL persistence
+# Create the bot application with PostgreSQL persistence 
+# and set connect/read/write/pool timeout durations
 persistence = PostgresPersistence(
-    url=PERSISTENCE_URL
+    url=PERSISTENCE_URL,
+    on_flush=True
 )
-bot_app = Application.builder().token(BOT_TOKEN).persistence(persistence).build()
+request = HTTPXRequest(
+    connect_timeout=20.0,
+    read_timeout=30.0,
+    write_timeout=30.0,
+    pool_timeout=5.0,
+)
+bot_app = Application.builder().token(BOT_TOKEN).persistence(persistence).request(request).build()
 
 # Track processed update IDs to prevent duplicate processing from Telegram retries
 processed_updates = set()
@@ -60,10 +71,23 @@ conv_handler = ConversationHandler(
     persistent=True,  # Enable persistence for this conversation
 )
 
+# Define error handler for bot application
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Error handler for bot application"""
+    err = context.error
+    if isinstance(err, TimedOut):
+        logging.warning("Telegram request timed out; continuing.")
+        return
+    if isinstance(err, NetworkError):
+        logging.warning("Transient network error: %s", err)
+        return
+    logging.exception("Unhandled error while processing update: %s", err)
+
 bot_app.add_handler(conv_handler)
 bot_app.add_handler(MessageHandler(filters.TEXT, reject_unexpected_messages))
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("quit", quit_bot))
+bot_app.add_error_handler(error_handler)
 
 # Define the lifespan context manager
 @asynccontextmanager

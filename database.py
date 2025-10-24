@@ -12,7 +12,6 @@ PERSISTENCE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB
 
 # create connection engine
 engine = create_engine(DATABASE_URL, poolclass=NullPool)
-connection = engine.connect()
 SessionLocal = sessionmaker(bind=engine)
 
 # define tables (as ORM classes)
@@ -23,6 +22,7 @@ class Users(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     telegram_id = Column(BigInteger, unique=True, nullable=False)
+    preferred_currency = Column(String(3), nullable=True, default=None)
 
 class Expenses(Base):
     """Expenses table"""

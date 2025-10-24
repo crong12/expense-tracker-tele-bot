@@ -1,12 +1,15 @@
 import re
 import os
+import time
 import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+from telegram.error import TimedOut, NetworkError
 from md2tgmd import escape
 from services.gemini_svc import process_expense_text, process_expense_image, refine_expense_details
 from services.expenses_svc import insert_expense, update_expense, get_or_create_user, \
-    exact_expense_matching, delete_all_expenses, delete_specific_expense, get_categories
+    exact_expense_matching, delete_all_expenses, delete_specific_expense, get_categories, \
+    get_user_preferred_currency, set_user_preferred_currency
 from services.sql_agent_svc import analyser_agent
 from utils import str_to_json
 from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, \
@@ -25,10 +28,17 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles expense text processing"""
     message = update.message
 
+    # Get user's preferred currency
+    telegram_id = update.effective_user.id
+    user_id = get_or_create_user(telegram_id)
+    preferred_currency = get_user_preferred_currency(user_id)
+    if not preferred_currency:
+        preferred_currency = "GBP"  # Default to GBP if no preference set
+
     if message.text:
         user_input = message.text
         logging.info('calling gemini...')
-        response = await process_expense_text(user_input)
+        response = await process_expense_text(user_input, preferred_currency=preferred_currency)
         logging.info('response generated')
 
     elif message.photo:
@@ -38,9 +48,9 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await image_file.download_to_drive(custom_path=image_path)
         if message.caption:
             img_caption = message.caption
-            response = await process_expense_image(image_path, caption=img_caption)
+            response = await process_expense_image(image_path, caption=img_caption, preferred_currency=preferred_currency)
         else:
-            response = await process_expense_image(image_path)
+            response = await process_expense_image(image_path, preferred_currency=preferred_currency)
         os.remove(image_path)   # remove image after parsing completed
     else:
         await message.reply_text("⚠️ I'm sorry, I don't know what that is. Please send either a text message or photo!")
@@ -143,9 +153,19 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_feedback = update.message.text
 
     original_details = context.user_data.get('parsed_expense', '')
+    original_currency = original_details.get('currency', '') if isinstance(original_details, dict) else ''
 
     refined_response = await refine_expense_details(original_details, user_feedback)
     json_refined_response = str_to_json(refined_response)
+
+    # Check if currency was changed during refinement
+    refined_currency = json_refined_response.get('currency', '')
+    if original_currency and refined_currency and original_currency != refined_currency:
+        # User explicitly changed the currency - update their preference
+        telegram_id = update.effective_user.id
+        user_id = get_or_create_user(telegram_id)
+        set_user_preferred_currency(user_id, refined_currency)
+        logging.info("Updated preferred currency for user %s to %s", user_id, refined_currency)
 
     context.user_data['parsed_expense'] = json_refined_response
 
@@ -189,8 +209,21 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Sorry, I couldn't find the expense in the database. Please try again.")
         return AWAITING_EDIT
 
+    # Extract original currency from the message text
+    original_currency_match = re.search(r"Currency:\s*(\w+)", original_text)
+    original_currency = original_currency_match.group(1) if original_currency_match else ''
+
     refined_response = await refine_expense_details(original_text, user_feedback)
     json_refined_response = str_to_json(refined_response)
+
+    # Check if currency was changed during editing
+    refined_currency = json_refined_response.get('currency', '')
+    if original_currency and refined_currency and original_currency != refined_currency:
+        # User explicitly changed the currency - update their preference
+        telegram_id = update.effective_user.id
+        user_id = get_or_create_user(telegram_id)
+        set_user_preferred_currency(user_id, refined_currency)
+        logging.info("Updated preferred currency for user %s to %s", user_id, refined_currency)
 
     context.user_data["editing_expense_id"] = expense_id
     context.user_data["is_editing"] = True
@@ -313,10 +346,12 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Send initial message
     processing_msg = await context.bot.send_message(
-        chat_id, "🔍 Processing your expense query..."
+        chat_id, "🔍 Processing your expense query... This may take a few seconds."
     )
 
     final_answer = None # Variable to store the final answer when found
+    last_sent_ts = 0.0
+    last_text = None
 
     try:
         # Set up the stream handler
@@ -329,53 +364,76 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # extract custom progress report message to be sent to user
                 message_to_send = chunk[1].get('custom', 'Processing...')
 
-                await context.bot.edit_message_text(
-                    message_to_send,
-                    chat_id=chat_id,
-                    message_id=processing_msg.message_id
-                )
+                now = time.time()
+                if (message_to_send != last_text) and (now - last_sent_ts > 1.5):
+                    try:
+                        await context.bot.edit_message_text(
+                            message_to_send,
+                            chat_id=chat_id,
+                            message_id=processing_msg.message_id
+                        )
+                        last_text = message_to_send
+                        last_sent_ts = now
+                    except (TimedOut, NetworkError):
+                        # Ignore transient network issues and continue streaming
+                        pass
 
             if isinstance(chunk, tuple) and 'answer_query' in chunk[1]:
                 # extract final answer from chunk but do not exit loop yet
                 final_answer = chunk[1]['answer_query']['messages'][-1].tool_calls[0]["args"]["final_answer"]
 
         # loop has ended, delete progress report message
-        await context.bot.delete_message(
-                chat_id=chat_id,
-                message_id=processing_msg.message_id
-            )
+        try:
+            await context.bot.delete_message(
+                    chat_id=chat_id,
+                    message_id=processing_msg.message_id
+                )
+        except (TimedOut, NetworkError):
+            pass
 
         # check for final answer
         if final_answer:
             # convert final answer to MarkdownV2 and send to user
             formatted_ans = escape(final_answer)
-            await context.bot.send_message(
-                            chat_id,
-                            f"{formatted_ans}\n\nType /start to return to the main menu\\.",
-                            parse_mode='MarkdownV2'
-            )
+            try:
+                await context.bot.send_message(
+                                chat_id,
+                                f"{formatted_ans}\n\nAsk me anything else or type /start to return to the main menu\\.",
+                                parse_mode='MarkdownV2'
+                )
+            except (TimedOut, NetworkError):
+                pass
             # Store answer for potential follow-up questions
             context.user_data['expense_analysis'] = final_answer
             return AWAITING_QUERY
         else:
             # if we didn't get a proper final result
-            await context.bot.send_message(
-                chat_id,
-                "Sorry, I couldn't process your query properly. Please try again or type /start to return to the main menu."
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id,
+                    "Sorry, I couldn't process your query properly. Please try again or type /start to return to the main menu."
+                )
+            except (TimedOut, NetworkError):
+                pass
             return AWAITING_QUERY
 
     except Exception as e: # pylint: disable=broad-except
         # probably no longer an issue now that we're using gpt-4o-mini
         if '429' in str(e):
-            await context.bot.send_message(
-            chat_id,
-            "Sorry, I am unable to answer your query at this moment due to rate limits 😓... Please try again later."
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id,
+                    "Sorry, I am unable to answer your query at this moment due to rate limits 😓... Please try again later."
+                )
+            except (TimedOut, NetworkError):
+                pass
         else:
-            await context.bot.send_message(
-                chat_id,
-                f"Sorry, there was an error in processing your query: {str(e)}. Please try again later."
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id,
+                    f"Sorry, there was an error in processing your query: {str(e)}. Please try again later."
+                )
+            except (TimedOut, NetworkError):
+                pass
 
     return WAITING_FOR_EXPENSE

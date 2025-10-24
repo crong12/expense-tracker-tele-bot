@@ -1,5 +1,6 @@
 import csv
 import re
+import logging
 from datetime import datetime
 from sqlalchemy import select, extract
 from database import SessionLocal, Users, Expenses
@@ -7,16 +8,52 @@ from database import SessionLocal, Users, Expenses
 def get_or_create_user(telegram_id):
     """Checks if a user exists in the database; if not, creates a new one"""
     session = SessionLocal()
-    user = session.query(Users)\
-        .filter(Users.telegram_id == telegram_id).first()
-    if user:
-        return user.id
+    try:
+        user = session.query(Users)\
+            .filter(Users.telegram_id == telegram_id).first()
+        if user:
+            return user.id
 
-    new_user = Users(telegram_id=telegram_id)
-    session.add(new_user)
-    session.commit()
-    session.refresh(new_user)
-    return new_user.id
+        new_user = Users(telegram_id=telegram_id)
+        session.add(new_user)
+        session.commit()
+        session.refresh(new_user)
+        return new_user.id
+    finally:
+        session.close()
+
+def get_user_preferred_currency(user_id):
+    """Retrieves the stored preferred currency for a user"""
+    session = SessionLocal()
+    try:
+        user = session.query(Users).filter(Users.id == user_id).first()
+        if user and user.preferred_currency:
+            return user.preferred_currency
+        return None
+    finally:
+        session.close()
+
+def set_user_preferred_currency(user_id, currency):
+    """Updates the user's preferred currency"""
+    session = SessionLocal()
+    try:
+        user = session.query(Users).filter(Users.id == user_id).first()
+        if user:
+            logging.info("Updating preferred_currency for user %s from %s to %s", 
+                        user_id, user.preferred_currency, currency)
+            user.preferred_currency = currency
+            session.commit()
+            logging.info("Successfully committed preferred_currency update")
+            return True
+        else:
+            logging.warning("User with id %s not found when updating preferred currency", user_id)
+        return False
+    except Exception as e: # pylint: disable=broad-except
+        session.rollback()
+        logging.error("Error updating preferred currency: %s", str(e))
+        return False
+    finally:
+        session.close()
 
 def get_categories(user_id):
     """Get all expense categories used by a specific user"""
@@ -49,9 +86,9 @@ def insert_expense(user_id, price, category, description, date, currency):
 
         return new_expense.id
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
         session.rollback()
-        print(f"Error inserting expense: {e}")
+        print("Error inserting expense: %s", str(e))
 
     finally:
         session.close()
@@ -70,14 +107,14 @@ def update_expense(expense_id, price, category, description, date, currency):
 
     try:
         session.commit()
-        session.refresh(expense) 
+        session.refresh(expense)
         return expense.id
-    
-    except Exception as e:
+
+    except Exception as e:  # pylint: disable=broad-except
         session.rollback()
         print(f"Error updating expense: {e}")
         return False
-    
+
     finally:
         session.close()
 
@@ -128,8 +165,8 @@ def export_expenses_to_csv(user_id, tele_handle, time_range):
 
         return file_path  # Return the generated file path
 
-    except Exception as e:
-        print(f"Error exporting expenses: {e}")
+    except Exception as e:  # pylint: disable=broad-except
+        print("Error exporting expenses: %s", str(e))
         return None
 
     finally:
@@ -139,7 +176,7 @@ def exact_expense_matching(expense_text):
     """Find an expense in the database by matching its details."""
     session = SessionLocal()
 
-    # extract details from the text 
+    # extract details from the text
     currency_pattern = r"Currency: (\w+)"
     amount_pattern = r"Amount: ([\d.]+)"
     category_pattern = r"Category:\s*(.+)"
@@ -177,13 +214,13 @@ def delete_all_expenses(user_id):
         session.commit()
         return True
 
-    except Exception as e:
-        print(f"Error exporting expenses: {e}")
+    except Exception as e:  # pylint: disable=broad-except
+        print("Error exporting expenses: %s", str(e))
         return False
 
     finally:
         session.close()
-        
+
 def delete_specific_expense(user_id, expense_id):
     """Deletes a specific expense associated with a user."""
     session = SessionLocal()
@@ -198,9 +235,9 @@ def delete_specific_expense(user_id, expense_id):
             return True
         return False
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
         session.rollback()
-        print(f"Error deleting expense: {e}")
+        print("Error deleting expense: %s", str(e))
         return False
 
     finally:
