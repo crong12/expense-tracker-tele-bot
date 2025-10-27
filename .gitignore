@@ -24,3 +24,6 @@ postgres_persistence.py
 
 # ignore additional docs folder
 additional_docs/
+
+# ignore whitelist initialization script
+init_whitelist.py
