@@ -7,9 +7,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.request import HTTPXRequest
 from telegram.error import TimedOut, NetworkError
 from telegram.ext import ContextTypes
-# local version of postgres persistence until ptbcontrib PR is merged
-# from ptbcontrib.postgres_persistence import PostgresPersistence
-from postgres_persistence import PostgresPersistence
+from ptbcontrib.postgres_persistence import PostgresPersistence
 from handlers import start, process_insert, process_edit, button_click, \
     reject_unexpected_messages, refine_details, handle_confirmation, quit_bot,\
     process_delete, delete_expense_confirmation, process_query, export_expenses

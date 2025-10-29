@@ -11,7 +11,7 @@ DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_POR
 PERSISTENCE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # create connection engine
-engine = create_engine(DATABASE_URL, poolclass=NullPool)
+engine = create_engine(DATABASE_URL, poolclass=NullPool, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 
 # define tables (as ORM classes)

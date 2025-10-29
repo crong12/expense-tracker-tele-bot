@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 # Add whitelisted usernames here (without @)
 # Format: (username, optional_notes)
 INITIAL_USERS = [
-    ("chrxmium", "Owner")
+    ("chrxmium", "Owner"),
+    ("marcusooi99", "Friend")
 ]
 
 def create_tables():

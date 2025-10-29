@@ -31,6 +31,7 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Get user's preferred currency
     telegram_id = update.effective_user.id
     user_id = get_or_create_user(telegram_id)
+    context.user_data['user_id'] = user_id
     preferred_currency = get_user_preferred_currency(user_id)
     if not preferred_currency:
         preferred_currency = "GBP"  # Default to GBP if no preference set
@@ -84,10 +85,13 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
     if query.data == "confirmation":
         await context.bot.send_message(chat_id,"✅ Great! Let me record your expense...")
         parsed_expense = context.user_data.get('parsed_expense', '')
+        # in handle_confirmation, use cached user_id if available, otherwise create new user
+        user_id = context.user_data.get('user_id', None)
+        if not user_id:
+            telegram_id = update.effective_user.id
+            user_id = get_or_create_user(telegram_id)
 
         if isinstance(parsed_expense, dict):  # ensure valid dictionary
-            telegram_id = update.effective_user.id
-            user_id = get_or_create_user(telegram_id)  # retrieve UUID associated with user
 
             # check if user is editing expense
             is_editing_expense = context.user_data.get("is_editing", False)

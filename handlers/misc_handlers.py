@@ -1,13 +1,13 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
-from services import get_or_create_user, is_user_whitelisted
+from services import get_or_create_user
 from config import WAITING_FOR_EXPENSE, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_QUERY, AWAITING_EXPORT_CONFIRMATION
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """bot initialisation; create start menu for user input"""
     telegram_id = update.effective_user.id # extract user telegram ID
     tele_handle = update.effective_user.username
-    
+
     # Check if user has a username set
     if not tele_handle:
         await context.bot.send_message(
@@ -16,16 +16,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  "Please set a username in your Telegram settings and try again."
         )
         return ConversationHandler.END
-    
-    # Check if user is whitelisted
-    if not is_user_whitelisted(tele_handle):
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Sorry, this bot is currently private and available only to whitelisted users. "
-                 "Please contact the bot owner (@chrxmium) if you need access."
-        )
-        return ConversationHandler.END
-    
+
     get_or_create_user(telegram_id)
 
     start_keyboard = [
