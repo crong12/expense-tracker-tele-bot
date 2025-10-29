@@ -67,15 +67,15 @@ Therefore, I created this Telegram bot as a personal project to further automate
 
 The obvious idea would be a standalone app, but for reasons mentioned above, plus the fact that there are already many professionally created apps out there, I doubt I'd be able to value-add much in that space.
 
-Telegram is a versatile messaging app that virtually everyone I know uses (I know WhatsApp still prevails in many other countries &ndash; hopefully this convinces some to switch to Telegram!). Thus, instead of yet another nameless app, why not leverage a platform that is already ubiquitous? Since we already have a deeply-ingrained habit of using Telegram on a daily &ndash; sometimes hourly &ndash; basis, I want to use this to leapfrog some of the inertia. 
+Telegram is a versatile messaging app that's ubiquitous among my social circle (and indeed, many Singaporeans out there). Thus, instead of yet another nameless app that I'm not going to remember using, why not leverage a platform that I use most frequently? Since we already have a deeply-ingrained habit of using Telegram on a daily &ndash; sometimes hourly &ndash; basis, I want to use this to leapfrog some of the inertia. 
 
-On a side note, it also alleviates the burden of frontend development and allows me to focus wholly on functionality, so that's a big W :D
+On a side note, Telegram, being largely open-source, has well-established developer tools which alleviates the burden of frontend development and allows me to focus wholly on functionality, so that's a big W :D
 
 ### How is this different from a regular app?
 
-Regular expense tracking apps require one to insert expense details into specified fields (e.g. amount spent, category, etc.) with limited variability. Just not very smart in general.
+Typical expense tracking apps require one to manually insert expense details into specified fields (e.g. amount spent, category, etc.), thereby placing the mental load on the user... just not very smart in general.
 
-Thus, I designed this bot to act as a smart "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed automatically. This is possible due to the semantic understanding capabilities of LLMs (I use `gemini-2.0-flash-lite` and `gpt-4o-mini` for this project). By leveraging LLMs, the bot's functionalities have much room for growth. 
+Thus, I designed this bot to act as a smart "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed automatically. This is possible due to the semantic understanding and natural language inference capabilities of LLMs (for example: `gemini-2.5-flash-lite`). Therefore, by leveraging LLMs, the previously difficult task of creating a versatile expense tracking assistant has now become much easier.
 
 <br/>
 
@@ -121,9 +121,9 @@ While I've successfully built the bot's basic functions and it works as it shoul
 
 Some features in the pipeline include:
 
--  Implementing persistence in the bot (i.e. memory) which will allow the bot to remember conversation states upon prolonged inactivity (during which the Cloud Run instance may shut down). 
+- **[DONE]** Implementing persistence in the bot (i.e. memory) which will allow the bot to remember conversation states upon prolonged inactivity (during which the Cloud Run instance may shut down). 
 - Storing user preferences &ndash; this links back to persistence as well. I want to allow users to indicate their preferred currencies and expense categories (e.g. some users may prefer "Food and Drink", while others may want to store "Food" and "Drink" expenses under separate categories).
-- Connecting the bot to a user's [Wise](https://wise.com/gb/blog/) account (I chose Wise instead of other banking apps because I primarily use Wise, oops). The idea is that every transaction will trigger a message being sent from the bot to the user, asking if they want to add that expense into their list. I'm particularly excited about this feature because this will be a huge automation step, taking a big part of the pain of having to consciously add expenses. 
+- Automatically generating a detailed monthly expense report with visualisations (graphs, charts, etc.) included. 
 
 Stay tuned for more updates! 🎯
 
