@@ -88,7 +88,7 @@ Thus, I designed this bot to act as a smart "assistant" &ndash; the user just ne
 
 The key feature of my bot is the ability for a user to leverage an AI agent for dynamic querying of their expenses, enabling smarter insights and even useful advice to improve one's spending habits.
 
-To do so, I utilised LangGraph to create an agentic workflow for this analytics task. My LLM of choice for this agent is `gpt-4o-mini` due to general performance, latency, and costs relative to other options out there. While the `gemini` suite of models is great, the low rate limit of 5 RPM was simply insufficient for agentic workflows, where multiple LLM calls have to be made in quick succession.
+To do so, I utilised LangGraph to create an agentic workflow for this analytics task. My LLMs of choice for this agent were `gpt-4.1-nano` and `gpt-5-mini` due to general performance, latency, and costs relative to other options out there. While the `gemini` suite of models is great, the low rate limit of 5 RPM was simply insufficient for agentic workflows, where multiple LLM calls have to be made in quick succession.
 
 <br/>
 
