@@ -30,11 +30,8 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Get user's preferred currency
     telegram_id = update.effective_user.id
-    user_id = get_or_create_user(telegram_id)
-    context.user_data['user_id'] = user_id
-    preferred_currency = get_user_preferred_currency(user_id)
-    if not preferred_currency:
-        preferred_currency = "GBP"  # Default to GBP if no preference set
+    context.user_data['telegram_id'] = telegram_id
+    preferred_currency = get_user_preferred_currency(telegram_id)
 
     if message.text:
         user_input = message.text

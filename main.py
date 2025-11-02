@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, BackgroundTasks
 from telegram import Update
@@ -47,6 +48,9 @@ bot_app = Application.builder().token(BOT_TOKEN).persistence(persistence).reques
 processed_updates = set()
 MAX_PROCESSED_UPDATES = 1000  # Keep last 1000 to prevent memory issues
 
+# Track the periodic flush task
+flush_task = None
+
 # Define conversation handler with persistence enabled
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start), CallbackQueryHandler(button_click)],
@@ -69,6 +73,21 @@ conv_handler = ConversationHandler(
     persistent=True,  # Enable persistence for this conversation
 )
 
+# Periodic flush function
+async def periodic_flush():
+    """Periodically flush persistence to database (every 60 seconds)"""
+    while True:
+        try:
+            await asyncio.sleep(60)  # Wait 60 seconds
+            if bot_app.persistence:
+                await bot_app.persistence.flush()
+                logging.info("Persistence flushed successfully")
+        except asyncio.CancelledError:
+            logging.info("Periodic flush task cancelled")
+            break
+        except Exception as e:  # pylint: disable=broad-except
+            logging.error("Error during periodic flush: %s", str(e))
+
 # Define error handler for bot application
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Error handler for bot application"""
@@ -90,6 +109,8 @@ bot_app.add_error_handler(error_handler)
 # Define the lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global flush_task  # pylint: disable=global-statement
+    
     # Startup: Initialize and start the bot
     try:
         await bot_app.initialize()
@@ -102,6 +123,10 @@ async def lifespan(app: FastAPI):
         else:
             logging.warning("No persistence configured!")
 
+        # Start periodic flush task
+        flush_task = asyncio.create_task(periodic_flush())
+        logging.info("Periodic flush task started (flushes every 60 seconds)")
+
     except Exception as e: # pylint: disable=broad-except
         logging.error("Error starting bot: %s", str(e))
         raise
@@ -110,10 +135,24 @@ async def lifespan(app: FastAPI):
 
     # Shutdown: Stop the bot
     try:
+        # Cancel periodic flush task
+        if flush_task:
+            flush_task.cancel()
+            try:
+                await flush_task
+            except asyncio.CancelledError:
+                pass
+            logging.info("Periodic flush task stopped")
+
         await bot_app.stop()
         logging.info("Bot has shut down.")
     except Exception as e: # pylint: disable=broad-except
         logging.error("Error stopping bot: %s", str(e))
+    
+    # Final flush before shutdown
+        if bot_app.persistence:
+            await bot_app.persistence.flush()
+            logging.info("Final persistence flush completed")
 
 # Initialize FastAPI app with the lifespan context manager
 app = FastAPI(lifespan=lifespan)

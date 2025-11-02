@@ -22,31 +22,31 @@ def get_or_create_user(telegram_id):
     finally:
         session.close()
 
-def get_user_preferred_currency(user_id):
+def get_user_preferred_currency(telegram_id):
     """Retrieves the stored preferred currency for a user"""
     session = SessionLocal()
     try:
-        user = session.query(Users).filter(Users.id == user_id).first()
-        if user and user.preferred_currency:
+        user = session.query(Users).filter(Users.telegram_id == telegram_id).first()
+        if user and user.preferred_currency is not None:
             return user.preferred_currency
-        return None
+        return "GBP"  # Default to GBP if no preference set
     finally:
         session.close()
 
-def set_user_preferred_currency(user_id, currency):
+def set_user_preferred_currency(telegram_id, currency):
     """Updates the user's preferred currency"""
     session = SessionLocal()
     try:
-        user = session.query(Users).filter(Users.id == user_id).first()
+        user = session.query(Users).filter(Users.telegram_id == telegram_id).first()
         if user:
             logging.info("Updating preferred_currency for user %s from %s to %s", 
-                        user_id, user.preferred_currency, currency)
+                        telegram_id, user.preferred_currency, currency)
             user.preferred_currency = currency
             session.commit()
             logging.info("Successfully committed preferred_currency update")
             return True
         else:
-            logging.warning("User with id %s not found when updating preferred currency", user_id)
+            logging.warning("User with id %s not found when updating preferred currency", telegram_id)
         return False
     except Exception as e: # pylint: disable=broad-except
         session.rollback()
