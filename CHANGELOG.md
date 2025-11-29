@@ -4,6 +4,12 @@ All notable changes to the bot will be documented here.
 
 <br/>
 
+## 1.4.4 &ndash; 2025-11-29
+
+### Fixed
+- Minor fixes to expense analyser agent (date inference was a little wonky previously &ndash; should be more robust now).
+
+
 ## 1.4.3 &ndash; 2025-10-25
 
 ### Added
@@ -12,6 +18,7 @@ All notable changes to the bot will be documented here.
 ### Changed
 - LLM expense parser &ndash; updated to use `gemini-2.5-flash-lite` as I foresee the 2.0 predecessor being deprecated soon.
 - LLM agent workhorses &ndash; now using `gpt-4.1-nano` and `gpt-5-mini` (with minimal thinking) as the ones used in 1.4.2 had unacceptably high latency.
+
 
 ## 1.4.2 &ndash; 2025-10-23
 

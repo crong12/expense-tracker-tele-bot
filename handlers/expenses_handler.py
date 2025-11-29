@@ -11,7 +11,7 @@ from services.expenses_svc import insert_expense, update_expense, get_or_create_
     exact_expense_matching, delete_all_expenses, delete_specific_expense, get_categories, \
     get_user_preferred_currency, set_user_preferred_currency
 from services.sql_agent_svc import analyser_agent
-from utils import str_to_json
+from utils import str_to_json, get_current_date
 from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, \
     AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, AWAITING_QUERY
 
@@ -333,16 +333,20 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_query = update.message.text
     previous_answer = context.user_data.get('expense_analysis', "")
+    today, day = get_current_date()
     prompt = f"""
     The user's query is: {user_query}.
     
     The user's UUID is {user_id}. ONLY query rows that belong to the user.
     
     Previous answer you provided: {previous_answer}.
+    Today's date is {today}. Today is {day}. Infer the date requested by the user based on today's date and previous answer.
     
     If the previous answer is outdated or does not help with getting what the user is requesting for, disregard it.
     
     The list of categories in the user's database is: {categories}.
+
+    
     """
 
     # Send initial message

@@ -123,6 +123,7 @@ Some features in the pipeline include:
 
 - **[DONE]** Implementing persistence in the bot (i.e. memory) which will allow the bot to remember conversation states upon prolonged inactivity (during which the Cloud Run instance may shut down). 
 - Storing user preferences &ndash; this links back to persistence as well. I want to allow users to indicate their preferred currencies and expense categories (e.g. some users may prefer "Food and Drink", while others may want to store "Food" and "Drink" expenses under separate categories).
+- Expanding capabilities of the expense analyser agent (mainly viz generation).
 - Automatically generating a detailed monthly expense report with visualisations (graphs, charts, etc.) included. 
 
 Stay tuned for more updates! 🎯

@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, BackgroundTasks
 from telegram import Update
@@ -48,8 +49,10 @@ bot_app = Application.builder().token(BOT_TOKEN).persistence(persistence).reques
 processed_updates = set()
 MAX_PROCESSED_UPDATES = 1000  # Keep last 1000 to prevent memory issues
 
-# Track the periodic flush task
+# Track the periodic flush task and last update time
 flush_task = None
+last_update_time = None
+INACTIVITY_THRESHOLD = 600  # 10 minutes in seconds
 
 # Define conversation handler with persistence enabled
 conv_handler = ConversationHandler(
@@ -75,13 +78,25 @@ conv_handler = ConversationHandler(
 
 # Periodic flush function
 async def periodic_flush():
-    """Periodically flush persistence to database (every 60 seconds)"""
+    """Periodically flush persistence to database (every 60 seconds) if there's been recent activity"""
     while True:
         try:
             await asyncio.sleep(60)  # Wait 60 seconds
-            if bot_app.persistence:
-                await bot_app.persistence.flush()
-                logging.info("Persistence flushed successfully")
+            
+            if bot_app.persistence and last_update_time is not None:
+                # Check if there's been activity in the last 10 minutes
+                time_since_last_update = time.time() - last_update_time
+                
+                if time_since_last_update < INACTIVITY_THRESHOLD:
+                    # Recent activity detected, perform flush
+                    await bot_app.persistence.flush()
+                    logging.info("Persistence flushed successfully (last update %.1f seconds ago)", 
+                                time_since_last_update)
+                else:
+                    # No recent activity, skip flush to save resources
+                    logging.debug("Skipping flush due to inactivity (last update %.1f seconds ago)", 
+                                 time_since_last_update)
+                    
         except asyncio.CancelledError:
             logging.info("Periodic flush task cancelled")
             break
@@ -144,15 +159,15 @@ async def lifespan(app: FastAPI):
                 pass
             logging.info("Periodic flush task stopped")
 
+        # Final flush before shutdown (ensure any pending data is saved)
+        if bot_app.persistence:
+            await bot_app.persistence.flush()
+            logging.info("Final persistence flush completed")
+        
         await bot_app.stop()
         logging.info("Bot has shut down.")
     except Exception as e: # pylint: disable=broad-except
         logging.error("Error stopping bot: %s", str(e))
-    
-    # Final flush before shutdown
-        if bot_app.persistence:
-            await bot_app.persistence.flush()
-            logging.info("Final persistence flush completed")
 
 # Initialize FastAPI app with the lifespan context manager
 app = FastAPI(lifespan=lifespan)
@@ -176,6 +191,8 @@ async def process_telegram_update(update: Update):
 @app.post("/")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
     """Handles webhook updates from Telegram"""
+    global last_update_time  # pylint: disable=global-statement
+    
     try:
         update_dict = await request.json()
         logging.info("Received update: %s", update_dict)
@@ -188,8 +205,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             logging.warning("Duplicate update %d detected, skipping", update_id)
             return {"status": "ok"}
 
-        # Track this update
+        # Track this update and update last activity time
         processed_updates.add(update_id)
+        last_update_time = time.time()  # Record time of this update
         # Keep set size manageable
         if len(processed_updates) > MAX_PROCESSED_UPDATES:
             # Remove oldest item to prevent unbounded growth

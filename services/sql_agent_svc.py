@@ -1,7 +1,5 @@
 import json
 import os
-import re
-from datetime import datetime
 from typing import Annotated, Literal
 from sqlalchemy.sql import text
 from langchain_core.tools import tool
@@ -14,10 +12,8 @@ from langgraph.graph import END, StateGraph, START
 from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.types import StreamWriter
 from database import SessionLocal
-from utils import create_tool_node_with_fallback
+from utils import create_tool_node_with_fallback, get_current_date
 from config import OPENAI_API_KEY
-from .expenses_svc import get_categories
-
 
 # set openai api key as env var
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
@@ -30,7 +26,7 @@ llm = ChatOpenAI(
 
 final_llm = ChatOpenAI(
     model="gpt-5-mini",
-    reasoning_effort="minimal",
+    reasoning_effort="low",
     max_retries=10
 )
 
@@ -38,8 +34,7 @@ class State(TypedDict):
     """Define the state for the agent"""
     messages: Annotated[list[AnyMessage], add_messages]
 
-today = datetime.today().strftime("%Y-%m-%d")
-day = datetime.today().strftime("%A")
+today, day = get_current_date()
 
 #---------------------------------------------------------------------------------------------------
 # Tools #
