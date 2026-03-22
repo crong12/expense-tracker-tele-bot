@@ -4,13 +4,26 @@ All notable changes to the bot will be documented here.
 
 <br/>
 
+## 1.5.1 &ndash; 2026-03-22
+
+### Added
+- Category rules &ndash; users can now save keyword-to-category preferences. When the user corrects a category during refinement, the bot offers to remember that preference for future expenses.
+- Existing categories are now passed through to image expense processing (was previously only used for text input).
+- Preferred currency is now updated on new expense inserts, not just edits.
+
+### Fixed
+- `set_user_preferred_currency` was being called with `user_id` (UUID) instead of `telegram_id` in refinement and edit flows.
+- Duplicate update eviction now uses FIFO ordering (`OrderedDict`) instead of arbitrary `set.pop()`.
+- Whitelist check no longer blocks the event loop &ndash; now runs in a separate thread via `asyncio.to_thread`.
+
+
 ## 1.5.0 &ndash; 2026-03-22
 
 ### Changed
-- Migrated gemini service from `vertexai` SDK to `google-genai` SDK with global endpoint.
-- Updated LLM expense parser to `gemini-3.1-flash-lite-preview`.
+- Migrated gemini service from `vertexai` SDK to `google-genai` SDK.
+- Updated LLM expense parser to use `gemini-3.1-flash-lite-preview`.
 - Simplified SQL agent workflow from 5 nodes to 3 &ndash; merged direct-response routing and query-check into a single `query_gen` node.
-- Replaced `NullPool` with a proper connection pool (`pool_size=2, max_overflow=3`).
+- Replaced `NullPool` with a proper connection pool.
 
 
 ## 1.4.4 &ndash; 2025-11-29
