@@ -1,7 +1,6 @@
 import uuid
 from datetime import datetime
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, Column, UUID, BigInteger, \
     String, Integer, ForeignKey, Numeric, Date, DateTime, Text
@@ -11,7 +10,7 @@ DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_POR
 PERSISTENCE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # create connection engine
-engine = create_engine(DATABASE_URL, poolclass=NullPool, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL, pool_size=2, max_overflow=3, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 
 # define tables (as ORM classes)

@@ -27,3 +27,9 @@ additional_docs/
 
 # ignore whitelist initialization script
 init_whitelist.py
+
+# ignore local notes and plans
+notes/
+
+# ignore local Claude Code config (skills, settings)
+.claude/

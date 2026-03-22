@@ -4,6 +4,15 @@ All notable changes to the bot will be documented here.
 
 <br/>
 
+## 1.5.0 &ndash; 2026-03-22
+
+### Changed
+- Migrated gemini service from `vertexai` SDK to `google-genai` SDK with global endpoint.
+- Updated LLM expense parser to `gemini-3.1-flash-lite-preview`.
+- Simplified SQL agent workflow from 5 nodes to 3 &ndash; merged direct-response routing and query-check into a single `query_gen` node.
+- Replaced `NullPool` with a proper connection pool (`pool_size=2, max_overflow=3`).
+
+
 ## 1.4.4 &ndash; 2025-11-29
 
 ### Fixed

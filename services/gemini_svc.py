@@ -1,27 +1,31 @@
-import vertexai
-from vertexai.generative_models import GenerativeModel, GenerationConfig, Part
+from google import genai
+from google.genai import types
 from tenacity import retry, wait_random_exponential
-from config import PROJECT_ID, REGION2, MODEL_NAME
+from config import PROJECT_ID, MODEL_NAME
 from utils import get_current_date
 
-vertexai.init(project=PROJECT_ID, location=REGION2)
-
-model = GenerativeModel(MODEL_NAME)
+client = genai.Client(
+    vertexai=True,
+    project=PROJECT_ID,
+    location='global',
+)
 
 expense_schema = {
-        "type": "OBJECT",
-        "properties": {
-            "currency": {"type": "STRING"},
-            "price": {"type": "NUMBER"},
-            "category": {"type": "STRING"},
-            "description": {"type": "STRING"},
-            "date": {"type": "STRING"},
-        },
+    "type": "OBJECT",
+    "properties": {
+        "currency": {"type": "STRING"},
+        "price": {"type": "NUMBER"},
+        "category": {"type": "STRING"},
+        "description": {"type": "STRING"},
+        "date": {"type": "STRING"},
+    },
 }
 
-expense_config = GenerationConfig(temperature=0.2,
-                                  response_mime_type="application/json",
-                                  response_schema=expense_schema)
+expense_config = types.GenerateContentConfig(
+    temperature=0.2,
+    response_mime_type="application/json",
+    response_schema=expense_schema,
+)
 
 # function to call gemini to process expense text
 # implement exponential backoff for load handling
@@ -49,8 +53,8 @@ async def process_expense_text(input_text: str, preferred_currency: str = "GBP")
     but make sure to only include whatever is already in the user input.); 
     DATE (be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date).
     """
-    response = await model.generate_content_async(
-        contents=prompt, generation_config=expense_config
+    response = await client.aio.models.generate_content(
+        model=MODEL_NAME, contents=prompt, config=expense_config
     )
     return response.text
 
@@ -90,14 +94,13 @@ async def process_expense_image(image_path: str, caption: str="", preferred_curr
     with open(image_path, "rb") as img_file:
         image_bytes = img_file.read()
 
-    image_part = Part.from_data(
+    image_part = types.Part.from_bytes(
         mime_type="image/png",
-        data=image_bytes
+        data=image_bytes,
     )
 
-    response = await model.generate_content_async(
-        contents=[image_part, prompt],
-        generation_config=expense_config
+    response = await client.aio.models.generate_content(
+        model=MODEL_NAME, contents=[image_part, prompt], config=expense_config
     )
     return response.text
 
@@ -121,7 +124,7 @@ async def refine_expense_details(original_details, user_feedback):
     
     Please refine the expense details accordingly while keeping other details unchanged.
     """
-    response = await model.generate_content_async(
-        contents=prompt, generation_config=expense_config
+    response = await client.aio.models.generate_content(
+        model=MODEL_NAME, contents=prompt, config=expense_config
     )
     return response.text

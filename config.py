@@ -27,7 +27,7 @@ OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
 LANGSMITH_API_KEY = get_secret("LANGSMITH_API_KEY")
 
 # model config
-MODEL_NAME = "gemini-2.5-flash-lite"
+MODEL_NAME = "gemini-3.1-flash-lite-preview"
 
 # conversation states
 WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, AWAITING_EDIT, \
