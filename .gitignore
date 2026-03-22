@@ -16,6 +16,9 @@ deploy.ps1
 # ignore broadcast message testing script
 feature_announcement_testing.py
 
+# ignore feature announcement script
+feature_announcement.py
+
 # ignore test script
 main_test.py
 
