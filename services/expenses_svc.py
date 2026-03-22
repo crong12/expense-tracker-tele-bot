@@ -3,7 +3,7 @@ import re
 import logging
 from datetime import datetime
 from sqlalchemy import select, extract
-from database import SessionLocal, Users, Expenses
+from database import SessionLocal, Users, Expenses, CategoryRules
 
 def get_or_create_user(telegram_id):
     """Checks if a user exists in the database; if not, creates a new one"""
@@ -240,5 +240,37 @@ def delete_specific_expense(user_id, expense_id):
         print("Error deleting expense: %s", str(e))
         return False
 
+    finally:
+        session.close()
+
+def get_category_rules(user_id):
+    """Get all category rules for a specific user"""
+    session = SessionLocal()
+    try:
+        rules = session.query(CategoryRules)\
+            .filter(CategoryRules.user_id == user_id)\
+            .all()
+        return [{"keyword": rule.keyword, "category": rule.category} for rule in rules]
+    finally:
+        session.close()
+
+def insert_category_rule(user_id, keyword, category):
+    """Insert a new category rule for a user. Updates existing rule if keyword already exists."""
+    session = SessionLocal()
+    try:
+        existing = session.query(CategoryRules)\
+            .filter(CategoryRules.user_id == user_id, CategoryRules.keyword == keyword.lower())\
+            .first()
+        if existing:
+            existing.category = category
+        else:
+            new_rule = CategoryRules(user_id=user_id, keyword=keyword.lower(), category=category)
+            session.add(new_rule)
+        session.commit()
+        return True
+    except Exception as e:  # pylint: disable=broad-except
+        session.rollback()
+        logging.error("Error inserting category rule: %s", str(e))
+        return False
     finally:
         session.close()

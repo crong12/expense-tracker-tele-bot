@@ -34,6 +34,14 @@ class Expenses(Base):
     date = Column(Date, nullable=False)
     currency = Column(String, nullable=False)
 
+class CategoryRules(Base):
+    """Per-user keyword-to-category mapping rules"""
+    __tablename__ = "category_rules"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    keyword = Column(String, nullable=False)
+    category = Column(String, nullable=False)
+
 class WhitelistedUsers(Base):
     """Whitelisted users table for access control"""
     __tablename__ = "whitelisted_users"

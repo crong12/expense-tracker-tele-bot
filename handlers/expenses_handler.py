@@ -9,11 +9,12 @@ from md2tgmd import escape
 from services.gemini_svc import process_expense_text, process_expense_image, refine_expense_details
 from services.expenses_svc import insert_expense, update_expense, get_or_create_user, \
     exact_expense_matching, delete_all_expenses, delete_specific_expense, get_categories, \
-    get_user_preferred_currency, set_user_preferred_currency
+    get_user_preferred_currency, set_user_preferred_currency, get_category_rules, insert_category_rule
 from services.sql_agent_svc import analyser_agent
 from utils import str_to_json, get_current_date
 from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, \
-    AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, AWAITING_QUERY
+    AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, AWAITING_QUERY, \
+    AWAITING_CATEGORY_RULE
 
 
 # yes/no inline keyboard for user confirmation
@@ -23,20 +24,31 @@ keyboard = [
 ]
 reply_markup = InlineKeyboardMarkup(keyboard)
 
+# yes/no inline keyboard for category rule prompt
+rule_keyboard = [
+    [InlineKeyboardButton("✅ Yes", callback_data="save_rule"),
+     InlineKeyboardButton("❌ No", callback_data="skip_rule")]
+]
+rule_reply_markup = InlineKeyboardMarkup(rule_keyboard)
+
 
 async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles expense text processing"""
     message = update.message
 
-    # Get user's preferred currency
+    # Get user's preferred currency and existing categories
     telegram_id = update.effective_user.id
     context.user_data['telegram_id'] = telegram_id
     preferred_currency = get_user_preferred_currency(telegram_id)
+    user_id = get_or_create_user(telegram_id)
+    context.user_data['user_id'] = user_id
+    existing_categories = get_categories(user_id)
+    category_rules = get_category_rules(user_id)
 
     if message.text:
         user_input = message.text
         logging.info('calling gemini...')
-        response = await process_expense_text(user_input, preferred_currency=preferred_currency)
+        response = await process_expense_text(user_input, preferred_currency=preferred_currency, existing_categories=existing_categories, category_rules=category_rules)
         logging.info('response generated')
 
     elif message.photo:
@@ -46,9 +58,9 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await image_file.download_to_drive(custom_path=image_path)
         if message.caption:
             img_caption = message.caption
-            response = await process_expense_image(image_path, caption=img_caption, preferred_currency=preferred_currency)
+            response = await process_expense_image(image_path, caption=img_caption, preferred_currency=preferred_currency, existing_categories=existing_categories, category_rules=category_rules)
         else:
-            response = await process_expense_image(image_path, preferred_currency=preferred_currency)
+            response = await process_expense_image(image_path, preferred_currency=preferred_currency, existing_categories=existing_categories, category_rules=category_rules)
         os.remove(image_path)   # remove image after parsing completed
     else:
         await message.reply_text("⚠️ I'm sorry, I don't know what that is. Please send either a text message or photo!")
@@ -82,10 +94,10 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
     if query.data == "confirmation":
         await context.bot.send_message(chat_id,"✅ Great! Let me record your expense...")
         parsed_expense = context.user_data.get('parsed_expense', '')
+        telegram_id = update.effective_user.id
         # in handle_confirmation, use cached user_id if available, otherwise create new user
         user_id = context.user_data.get('user_id', None)
         if not user_id:
-            telegram_id = update.effective_user.id
             user_id = get_or_create_user(telegram_id)
 
         if isinstance(parsed_expense, dict):  # ensure valid dictionary
@@ -126,6 +138,8 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     date=parsed_expense['date'],
                     currency=parsed_expense['currency']
                 )
+                # update preferred currency to match the confirmed expense
+                set_user_preferred_currency(telegram_id, parsed_expense['currency'])
                 await context.bot.send_message(chat_id,
                                             "<b>✅ Your expense has been recorded successfully!</b>\n"
                                             f"📈 <b>Currency:</b> {parsed_expense['currency']}\n"
@@ -135,6 +149,22 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                                             f"📅 <b>Date:</b> {parsed_expense['date']}\n\n"
                                             f"<b>Expense ID:</b> {expense_id}\n",
                                             parse_mode = 'HTML')
+
+                # if category was corrected, ask user if they want to save as a rule
+                if context.user_data.get('category_corrected', False):
+                    description = parsed_expense['description']
+                    category = parsed_expense['category']
+                    context.user_data['category_corrected'] = False
+                    context.user_data['pending_rule_keyword'] = description
+                    context.user_data['pending_rule_category'] = category
+                    await context.bot.send_message(
+                        chat_id,
+                        f"🔖 I noticed you changed the category to <b>{category}</b>. "
+                        f"Would you like me to always categorize <b>{description}</b> as <b>{category}</b>?",
+                        reply_markup=rule_reply_markup,
+                        parse_mode='HTML'
+                    )
+                    return AWAITING_CATEGORY_RULE
 
                 await context.bot.send_message(chat_id, "Would you like to add another expense? Type it below or send /start to go back to the main menu.")
 
@@ -155,6 +185,7 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     original_details = context.user_data.get('parsed_expense', '')
     original_currency = original_details.get('currency', '') if isinstance(original_details, dict) else ''
+    original_category = original_details.get('category', '') if isinstance(original_details, dict) else ''
 
     refined_response = await refine_expense_details(original_details, user_feedback)
     json_refined_response = str_to_json(refined_response)
@@ -164,9 +195,13 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if original_currency and refined_currency and original_currency != refined_currency:
         # User explicitly changed the currency - update their preference
         telegram_id = update.effective_user.id
-        user_id = get_or_create_user(telegram_id)
-        set_user_preferred_currency(user_id, refined_currency)
-        logging.info("Updated preferred currency for user %s to %s", user_id, refined_currency)
+        set_user_preferred_currency(telegram_id, refined_currency)
+        logging.info("Updated preferred currency for user %s to %s", telegram_id, refined_currency)
+
+    # Track if category was corrected by the user
+    refined_category = json_refined_response.get('category', '')
+    if original_category and refined_category and original_category != refined_category:
+        context.user_data['category_corrected'] = True
 
     context.user_data['parsed_expense'] = json_refined_response
 
@@ -222,9 +257,8 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if original_currency and refined_currency and original_currency != refined_currency:
         # User explicitly changed the currency - update their preference
         telegram_id = update.effective_user.id
-        user_id = get_or_create_user(telegram_id)
-        set_user_preferred_currency(user_id, refined_currency)
-        logging.info("Updated preferred currency for user %s to %s", user_id, refined_currency)
+        set_user_preferred_currency(telegram_id, refined_currency)
+        logging.info("Updated preferred currency for user %s to %s", telegram_id, refined_currency)
 
     context.user_data["editing_expense_id"] = expense_id
     context.user_data["is_editing"] = True
@@ -441,4 +475,39 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except (TimedOut, NetworkError):
                 pass
 
+    return WAITING_FOR_EXPENSE
+
+
+async def handle_category_rule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle user response to the category rule prompt"""
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = query.message.chat_id
+
+    if query.data == "save_rule":
+        keyword = context.user_data.get('pending_rule_keyword', '')
+        category = context.user_data.get('pending_rule_category', '')
+        user_id = context.user_data.get('user_id')
+
+        if keyword and category and user_id:
+            success = insert_category_rule(user_id, keyword, category)
+            if success:
+                await context.bot.send_message(
+                    chat_id,
+                    f"✅ Got it! I'll always categorize <b>{keyword}</b> as <b>{category}</b> from now on.",
+                    parse_mode='HTML'
+                )
+            else:
+                await context.bot.send_message(chat_id, "⚠️ Sorry, I couldn't save that preference. Please try again later.")
+        else:
+            await context.bot.send_message(chat_id, "⚠️ Something went wrong. Please try again later.")
+    else:
+        await context.bot.send_message(chat_id, "👍 No problem!")
+
+    # clean up
+    context.user_data.pop('pending_rule_keyword', None)
+    context.user_data.pop('pending_rule_category', None)
+
+    await context.bot.send_message(chat_id, "Would you like to add another expense? Type it below or send /start to go back to the main menu.")
     return WAITING_FOR_EXPENSE

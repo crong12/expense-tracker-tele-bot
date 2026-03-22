@@ -2,6 +2,7 @@ import os
 import logging
 import asyncio
 import time
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, BackgroundTasks
 from telegram import Update
@@ -12,11 +13,12 @@ from telegram.ext import ContextTypes
 from ptbcontrib.postgres_persistence import PostgresPersistence
 from handlers import start, process_insert, process_edit, button_click, \
     reject_unexpected_messages, refine_details, handle_confirmation, quit_bot,\
-    process_delete, delete_expense_confirmation, process_query, export_expenses
+    process_delete, delete_expense_confirmation, process_query, export_expenses, \
+    handle_category_rule
 from services import is_user_whitelisted
 from config import BOT_TOKEN, LANGSMITH_API_KEY, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, \
     AWAITING_REFINEMENT, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, \
-    AWAITING_QUERY, AWAITING_EXPORT_CONFIRMATION
+    AWAITING_QUERY, AWAITING_EXPORT_CONFIRMATION, AWAITING_CATEGORY_RULE
 from database import PERSISTENCE_URL
 
 # enable langsmith tracing
@@ -46,7 +48,8 @@ request = HTTPXRequest(
 bot_app = Application.builder().token(BOT_TOKEN).persistence(persistence).request(request).build()
 
 # Track processed update IDs to prevent duplicate processing from Telegram retries
-processed_updates = set()
+# OrderedDict preserves insertion order so we evict the oldest entry (not arbitrary)
+processed_updates = OrderedDict()
 MAX_PROCESSED_UPDATES = 1000  # Keep last 1000 to prevent memory issues
 
 # Track the periodic flush task and last update time
@@ -69,7 +72,8 @@ conv_handler = ConversationHandler(
         AWAITING_DELETE_CONFIRMATION: [CallbackQueryHandler(delete_expense_confirmation)],
         AWAITING_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_query),
                          CallbackQueryHandler(button_click)],
-        AWAITING_EXPORT_CONFIRMATION: [CallbackQueryHandler(export_expenses)]
+        AWAITING_EXPORT_CONFIRMATION: [CallbackQueryHandler(export_expenses)],
+        AWAITING_CATEGORY_RULE: [CallbackQueryHandler(handle_category_rule)]
     },
     fallbacks=[CommandHandler("start", start), CommandHandler("quit", quit_bot)],
     name="expense_conversation",  # Unique name for this conversation
@@ -206,12 +210,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "ok"}
 
         # Track this update and update last activity time
-        processed_updates.add(update_id)
+        processed_updates[update_id] = None
         last_update_time = time.time()  # Record time of this update
-        # Keep set size manageable
+        # Evict oldest entry to prevent unbounded growth
         if len(processed_updates) > MAX_PROCESSED_UPDATES:
-            # Remove oldest item to prevent unbounded growth
-            processed_updates.pop()
+            processed_updates.popitem(last=False)
 
         # Defense in depth: Check whitelist before processing any update
         if update and update.effective_user:
@@ -226,8 +229,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                 )
                 return {"status": "ok"}
 
-            # Check if user is whitelisted
-            if not is_user_whitelisted(username):
+            # Check if user is whitelisted (run in thread to avoid blocking event loop)
+            if not await asyncio.to_thread(is_user_whitelisted, username):
                 logging.warning(
                     "Unauthorized access attempt by user: @%s (ID: %s)",
                     username,
