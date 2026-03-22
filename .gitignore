@@ -33,3 +33,6 @@ notes/
 
 # ignore local Claude Code config (skills, settings)
 .claude/
+
+# ignore VS Code workspace settings
+.vscode/
