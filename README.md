@@ -75,7 +75,7 @@ On a side note, Telegram, being largely open-source, has well-established develo
 
 Typical expense tracking apps require one to manually insert expense details into specified fields (e.g. amount spent, category, etc.), thereby placing the mental load on the user... just not very smart in general.
 
-Thus, I designed this bot to act as a smart "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed automatically. This is possible due to the semantic understanding and natural language inference capabilities of LLMs (for example: `gemini-2.5-flash-lite`). Therefore, by leveraging LLMs, the previously difficult task of creating a versatile expense tracking assistant has now become much easier.
+Thus, I designed this bot to act as a smart "assistant" &ndash; the user just needs to enter their expense in plain text, and the relevant details will be parsed automatically. This is possible due to the semantic understanding and natural language inference capabilities of LLMs (for example: `gemini-3.1-flash-lite-preview`). Therefore, by leveraging LLMs, the previously difficult task of creating a versatile expense tracking assistant has now become much easier.
 
 <br/>
 
@@ -92,14 +92,23 @@ To do so, I utilised LangGraph to create an agentic workflow for this analytics 
 
 <br/>
 
-<div align="center">
-  <img src="images/workflow_graph.png" width="200" height="538"/><br>
-  <sub>Visualisation of the agentic workflow.</sub>
-</div>
+```mermaid
+graph TD
+    START([Start]) --> query_gen
+
+    query_gen["Generate & self-check SQL query"]
+    query_gen -->|needs DB access| execute_query["Run SQL query"]
+    query_gen -->|no DB access needed| answer_query["Formulate response"]
+
+    execute_query -->|success| answer_query
+    execute_query -->|error| query_gen
+
+    answer_query --> END([End])
+```
 
 <br/>
 
-Upon receiving a query from the user, the agent first decides if the question warrants querying of the `expenses` database to get an answer. If the question can be answered by a direct response, the process is routed straight to the `answer_query` node. 
+Upon receiving a query from the user, the agent first decides if the question warrants querying of the `expenses` database to get an answer. If the question can be answered by a direct response, the agent formulates an answer immediately.
 
 ```python
 Example: {'user_query': 'Please give me some general tips on managing spending habits.'}
@@ -107,7 +116,7 @@ Example: {'user_query': 'Please give me some general tips on managing spending h
 
 <br/>
 
-Conversely, if the query requires more in-depth analysis of the user's expenses, the process will be routed to the `query_gen` state, where the agent will generate a SQL query to extract the relevant data. This generated query gets passed into the `correct_query` state, where an LLM is invoked to detect any potential errors (e.g. syntax), and make changes if necessary. In the `execute_query` state, a database query tool is called. If an error occurs, the error is surfaced to the agent and the `query_gen` cycle repeats. Otherwise, the output from the query is passed to the `answer_query` state for formulation of the final answer.
+Conversely, if the query requires expense data, the agent generates a SQL query and self-checks it for common mistakes before running it. If an error occurs during execution, the error is surfaced back to the agent and the cycle repeats. Otherwise, the output from the query is passed to the agent for formulation of the final answer.
 
 ```python
 Example: {'user_query': 'Please summarize my expenditure for this month.'}
@@ -121,10 +130,10 @@ While I've successfully built the bot's basic functions and it works as it shoul
 
 Some features in the pipeline include:
 
-- **[DONE]** Implementing persistence in the bot (i.e. memory) which will allow the bot to remember conversation states upon prolonged inactivity (during which the Cloud Run instance may shut down). 
-- Storing user preferences &ndash; this links back to persistence as well. I want to allow users to indicate their preferred currencies and expense categories (e.g. some users may prefer "Food and Drink", while others may want to store "Food" and "Drink" expenses under separate categories).
+- **[DONE]** Implementing persistence in the bot (i.e. memory) which will allow the bot to remember conversation states upon prolonged inactivity (during which the Cloud Run instance may shut down).
+- **[DONE]** Storing user preferences &ndash; users can set their preferred currency and define category rules (keyword-to-category mappings) for recurring expenses.
 - Expanding capabilities of the expense analyser agent (mainly viz generation).
-- Automatically generating a detailed monthly expense report with visualisations (graphs, charts, etc.) included. 
+- Automatically generating a detailed monthly expense report with visualisations (graphs, charts, etc.) included.
 
 Stay tuned for more updates! 🎯
 
@@ -133,6 +142,7 @@ Stay tuned for more updates! 🎯
 - [![Docker][docker-shield]][docker-url]
 - [![FastAPI][fast-api-shield]][fast-api-url]
 - [![Google Cloud][gcp-shield]][gcp-url]
+- [![Google Gemini][gemini-shield]][gemini-url]
 - [![LangGraph][Langgraph-shield]][Langgraph-url]
 - [![OpenAI][openai-shield]][openai-url]
 - [![PostgreSQL][Postgresql-shield]][Postgresql-url]
@@ -153,19 +163,20 @@ expense-tracker-tele-bot/
 │── database.py              # Database connection and ORM classes
 │── utils.py                 # Miscellaneous util functions
 │── handlers/                # Folder containing bot handler functions
-│   ├── __init__.py       
-│   ├── misc_handlers.py            
-│   ├── expenses_handler.py         
-│   └── export.py         
+│   ├── __init__.py
+│   ├── misc_handlers.py
+│   ├── expenses_handler.py
+│   └── export.py
 │── services/                # Folder containing key service functions
 │   ├── __init__.py          # (e.g. for LLM integration)
-│   ├── gemini_svc.py     
+│   ├── gemini_svc.py
 │   ├── expenses_svc.py
-│   └── sql_agent_svc.py
-│── feature_announcement.py  # Standalone script for broadcasting new features
+│   ├── sql_agent_svc.py
+│   └── whitelist_svc.py
+│── deploy.ps1               # PowerShell deployment script
 │── requirements.txt         # Dependencies
 │── Dockerfile               # For deployment
-│── .dockerignore            
+│── .dockerignore
 │── .gitignore
 │── images/                  # Folder containing demo screenshots
 │── LICENSE                  # MIT license file
@@ -183,18 +194,19 @@ To try this bot for yourself, follow these steps.
 
 ### Prerequisites
 
-- Python 3.8+ (this was built with 3.11)
+- Python 3.11+
 - Supabase account (PostgreSQL)
   - Get started with Supabase [here](https://supabase.com/).
   - You may explore other SQL database platforms (e.g. self-hosted via Raspberry Pi, other providers, etc.). As long as SQLAlchemy is still used to access the database, the only file to be changed should be `database.py`.
-- Google Cloud Project with Vertex AI and billing enabled 
-  - To get started with Google Cloud Projects and Vertex AI, [this](https://cloud.google.com/vertex-ai/docs/start/cloud-environment) is a good starting point.
-- Google Cloud Secret Manager for storage of secret variables
+- Google Cloud Project with billing enabled
+  - To get started with Google Cloud Projects, [this](https://cloud.google.com/docs/get-started) is a good starting point.
+- Google Cloud Secret Manager for storage of secret variables (in prod)
   - Quickstart [here](https://cloud.google.com/secret-manager/docs/create-secret-quickstart).
+- Google Gemini API key (used via the `google-genai` SDK)
 - Telegram Bot API Token
   - [This](https://core.telegram.org/bots/tutorial) is a comprehensive introduction to using Telegram bots.
-- OpenAI API key
-- Docker
+- OpenAI API key (for the expense analysis agent)
+- Docker (for deployment)
 - LangSmith tracing (optional)
   - Get started [here](https://docs.smith.langchain.com/observability).
 
@@ -209,32 +221,31 @@ To try this bot for yourself, follow these steps.
 
 <br/>
 
-**2. Set up the relevant secret variables**
-   ```sh
-   # Create secrets
-   gcloud secrets create TELE_BOT_TOKEN --replication-policy="automatic"
-   gcloud secrets create REGION --replication-policy="automatic"
-   gcloud secrets create DB_USER --replication-policy="automatic"
-   gcloud secrets create DB_PASSWORD --replication-policy="automatic"
-   gcloud secrets create DB_NAME --replication-policy="automatic"
-   gcloud secrets create DB_PORT --replication-policy="automatic"
-   gcloud secrets create DB_HOST --replication-policy="automatic"
-   gcloud secrets create OPENAI_API_KEY --replication-policy="automatic"
-   gcloud secrets create LANGSMITH_API_KEY --replication-policy="automatic"
+**2. Set up environment variables**
 
-   # Then add values
-   gcloud secrets versions add TELE_BOT_TOKEN --data-file=<(echo "your-telegram-bot-token")
-   gcloud secrets versions add REGION --data-file=<(echo "your-region")
-   gcloud secrets versions add DB_USER --data-file=<(echo "your-db-user")
-   gcloud secrets versions add DB_PASSWORD --data-file=<(echo "your-db-password")
-   gcloud secrets versions add DB_NAME --data-file=<(echo "your-db-name")
-   gcloud secrets versions add DB_PORT --data-file=<(echo "your-db-port")
-   gcloud secrets versions add DB_HOST --data-file=<(echo "your-db-host")
-   gcloud secrets versions add OPENAI_API_KEY --data-file=<(echo "your-openai-api-key")
-   gcloud secrets versions add LANGSMITH_API_KEY --data-file=<(echo "your-langsmith-api-key")
+   Create a `.env` file in the project root with the following variables:
+   ```sh
+   TELE_BOT_TOKEN=your-telegram-bot-token
+   GCP_PROJECT_ID=your-gcp-project-id
+   REGION=your-gcp-region
+   REGION2=your-cloud-sql-region
+   DB_USER=your-db-user
+   DB_PASSWORD=your-db-password
+   DB_NAME=your-db-name
+   DB_HOST=your-db-host
+   DB_PORT=5432
+   OPENAI_API_KEY=your-openai-api-key
+   LANGSMITH_API_KEY=your-langsmith-api-key        # optional
+   LANGSMITH_PROJECT=your-langsmith-project-name    # optional
+   LANGSMITH_TRACING=true                           # optional
+   LANGSMITH_ENDPOINT=https://api.smith.langchain.com  # optional
    ```
 
-  Or you could do it within the browser console as well if that's easier.
+   For production deployment, secrets are retrieved from Google Cloud Secret Manager instead (see `config.py`). You can create them via the CLI or browser console:
+   ```sh
+   gcloud secrets create SECRET_NAME --replication-policy="automatic"
+   gcloud secrets versions add SECRET_NAME --data-file=<(echo "secret-value")
+   ```
 
 <br/>
 
@@ -242,61 +253,49 @@ To try this bot for yourself, follow these steps.
    ```sh
    gcloud services enable run.googleapis.com \
     cloudbuild.googleapis.com \
-    secretmanager.googleapis.com \
-    aiplatform.googleapis.com
+    secretmanager.googleapis.com
    ```
 
 <br/>
 
-**4. Set up LangSmith tracing (optional)**
+**4. Build and deploy bot to Google Cloud Run**
 
-   ```python
-   # enable langsmith tracing
-   os.environ["LANGSMITH_TRACING"] = "true"
-   os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
-   os.environ["LANGSMITH_PROJECT"] = "your-langsmith-project-name"
-   os.environ["LANGSMITH_API_KEY"] = LANGSMITH_API_KEY
+   A `deploy.ps1` PowerShell script is provided that automates the build, push, and deploy steps. It reads from your `.env` file:
+   ```powershell
+   ./deploy.ps1
    ```
 
-<br/>
-
-**5. Build and deploy bot to Google Cloud Run**  
-<br/>
-   5.1 Authenticate Docker with Google Cloud
+   Alternatively, you can deploy manually:
    ```sh
+   # Authenticate Docker with Google Cloud
    gcloud auth configure-docker your-region-docker.pkg.dev
-   ```
-   5.2 Build Docker image
-   ```sh
+
+   # Build and push Docker image
    docker build -t your-region-docker.pkg.dev/your-project-id/your-repo/image-name .
-   ```
-   5.3 Push to Google Artifact Registry
-   ```sh
    docker push your-region-docker.pkg.dev/your-project-id/your-repo/image-name
-   ```
-   5.4 Deploy to Google Cloud Run
-   ```sh
+
+   # Deploy to Cloud Run
    gcloud run deploy service-name \
     --image=your-region-docker.pkg.dev/your-project-id/your-repo/image-name \
     --region your-region \
     --platform=managed \
     --allow-unauthenticated \
-    --set-env-vars PORT=8080
+    --timeout=600
    ```
 
 <br/>
 
-**6. Set up webhook**
+**5. Set up webhook**
    ```sh
    curl -X POST "https://api.telegram.org/bot<your-bot-token>/setWebhook?url=<your-cloud-run-url>"
    ```
 
 <br/>
 
-**7. Change git remote url to avoid accidental pushes to base project**
+**6. Change git remote url to avoid accidental pushes to base project**
    ```sh
    git remote set-url origin github_username/repo_name
-   git remote -v 
+   git remote -v
    ```
 
 <br/>
@@ -324,7 +323,7 @@ The bot will extract the following details:
 
 <p align="center">
   <img src="images/demo_gif2_uncompressed.gif" width="450" height="909"/><br>
-  <sub>Gif of an expense recording instance with <b>multimodal input</b>. Using <code>gemini-2.0-flash-lite</code>'s multimodal capabilities, expenses can easily be parsed from images such as receipts, further easing the expense adding process.</sub>
+  <sub>Gif of an expense recording instance with <b>multimodal input</b>. Using <code>gemini-3.1-flash-lite-preview</code>'s multimodal capabilities, expenses can easily be parsed from images such as receipts, further easing the expense adding process.</sub>
 </p>
 
 ### **3️⃣ Edit Expense Details**
@@ -405,7 +404,7 @@ Distributed under the [MIT license](LICENSE).
 
 * The 🤗 HuggingFace agents course for being a great resource to get started with agents! If anyone's reading this, I highly recommend the course.
 
-* Google and ChatGPT for being the best teachers out there, without whom this project would've taken much, *much* longer to do up.
+* Google and ChatGPT (2026 edit: and now Claude Code) for being the best teachers out there, without whom this project would've taken much, *much* longer to build.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -427,5 +426,7 @@ Distributed under the [MIT license](LICENSE).
 [gcp-url]: https://console.cloud.google.com/
 [docker-shield]: https://img.shields.io/badge/docker-257bd6?style=for-the-badge&logo=docker&logoColor=white
 [docker-url]: https://www.docker.com/
+[gemini-shield]: https://img.shields.io/badge/Google%20Gemini-3871e0?style=for-the-badge&logo=googlegemini&logoColor=white
+[gemini-url]: https://ai.google.dev/
 [fast-api-shield]: https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi
 [fast-api-url]: https://fastapi.tiangolo.com/
