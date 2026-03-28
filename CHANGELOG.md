@@ -4,6 +4,13 @@ All notable changes to the bot will be documented here.
 
 <br/>
 
+## 1.5.2 &ndash; 2026-03-28
+
+### Changed
+- Refactored SQL agent from a 3-node pipeline (`query_gen` &rarr; `execute_query` &rarr; `answer_query`) to a single ReAct-style `analyst` node with a tool loop. Simpler workflow, and the agent can now make multiple SQL queries per turn before answering.
+- Consolidated from two LLMs (`gpt-4.1-nano` + `gpt-5-mini`) to a single `gpt-5.4-mini` model.
+
+
 ## 1.5.1 &ndash; 2026-03-22
 
 ### Added
