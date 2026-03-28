@@ -88,27 +88,24 @@ Thus, I designed this bot to act as a smart "assistant" &ndash; the user just ne
 
 The key feature of my bot is the ability for a user to leverage an AI agent for dynamic querying of their expenses, enabling smarter insights and even useful advice to improve one's spending habits.
 
-To do so, I utilised LangGraph to create an agentic workflow for this analytics task. My LLMs of choice for this agent were `gpt-4.1-nano` and `gpt-5-mini` due to general performance, latency, and costs relative to other options out there. While the `gemini` suite of models is great, the low rate limit of 5 RPM was simply insufficient for agentic workflows, where multiple LLM calls have to be made in quick succession.
+To do so, I utilised LangGraph to create an agentic workflow for this analytics task. My LLM of choice for this agent is `gpt-5.4-mini` due to general performance, latency, and costs relative to other options out there. The agent uses a ReAct-style architecture with a single `analyst` node that can call tools (SQL queries) in a loop until it has enough data to answer.
 
 <br/>
 
 ```mermaid
 graph TD
-    START([Start]) --> query_gen
+    start_node([Start]) --> analyst
 
-    query_gen["Generate & self-check SQL query"]
-    query_gen -->|needs DB access| execute_query["Run SQL query"]
-    query_gen -->|no DB access needed| answer_query["Formulate response"]
+    analyst["Analyst (decide, query, or answer)"]
+    analyst -->|needs data| tools["Execute SQL query"]
+    analyst -->|answer ready| end_node([End])
 
-    execute_query -->|success| answer_query
-    execute_query -->|error| query_gen
-
-    answer_query --> END([End])
+    tools --> analyst
 ```
 
 <br/>
 
-Upon receiving a query from the user, the agent first decides if the question warrants querying of the `expenses` database to get an answer. If the question can be answered by a direct response, the agent formulates an answer immediately.
+Upon receiving a query from the user, the analyst decides if the question warrants querying of the `expenses` database. If the question can be answered without expense data (general questions, greetings), the agent submits a final answer directly.
 
 ```python
 Example: {'user_query': 'Please give me some general tips on managing spending habits.'}
@@ -116,7 +113,7 @@ Example: {'user_query': 'Please give me some general tips on managing spending h
 
 <br/>
 
-Conversely, if the query requires expense data, the agent generates a SQL query and self-checks it for common mistakes before running it. If an error occurs during execution, the error is surfaced back to the agent and the cycle repeats. Otherwise, the output from the query is passed to the agent for formulation of the final answer.
+If the query requires expense data, the analyst generates and self-checks a SQL query, executes it via `db_query_tool`, and loops back to evaluate the results. It can make multiple queries to gather all needed data before formulating its final answer.
 
 ```python
 Example: {'user_query': 'Please summarize my expenditure for this month.'}
@@ -130,10 +127,9 @@ While I've successfully built the bot's basic functions and it works as it shoul
 
 Some features in the pipeline include:
 
-- **[DONE]** Implementing persistence in the bot (i.e. memory) which will allow the bot to remember conversation states upon prolonged inactivity (during which the Cloud Run instance may shut down).
-- **[DONE]** Storing user preferences &ndash; users can set their preferred currency and define category rules (keyword-to-category mappings) for recurring expenses.
 - Expanding capabilities of the expense analyser agent (mainly viz generation).
 - Automatically generating a detailed monthly expense report with visualisations (graphs, charts, etc.) included.
+- Expanding beyond purely expense (outflow) tracking &ndash; as I've started a full-time job, measuring outflow against income matters just as much. The idea is to parse monthly payslips to track income (gross, take-home, etc.), thereby creating a more comprehensive personal finances tracker.
 
 Stay tuned for more updates! 🎯
 
@@ -190,7 +186,7 @@ expense-tracker-tele-bot/
 <!-- GETTING STARTED -->
 ## Getting Started
 
-To try this bot for yourself, follow these steps.
+To try this bot for yourself, follow these steps. Note: this assumes you want to deploy this using Google Cloud infrastructure. For local deployments, you'll be able to skip quite a few of these steps.
 
 ### Prerequisites
 
@@ -322,7 +318,7 @@ The bot will extract the following details:
 - Date
 
 <p align="center">
-  <img src="images/demo_gif2_uncompressed.gif" width="450" height="909"/><br>
+  <img src="images/demo_gif2_compressed.gif" width="450" height="909"/><br>
   <sub>Gif of an expense recording instance with <b>multimodal input</b>. Using <code>gemini-3.1-flash-lite-preview</code>'s multimodal capabilities, expenses can easily be parsed from images such as receipts, further easing the expense adding process.</sub>
 </p>
 
@@ -341,7 +337,7 @@ Click **`🗑️ Delete Expenses`** and either reply to a message from the bot w
 Click **`🔍 Analyse Expenses`** and ask the bot something about your expenses.
 
 <p align="center">
-  <img src="images/demo_gif_uncompressed.gif" width="450" height="911"/><br>
+  <img src="images/demo_gif_compressed.gif" width="450" height="911"/><br>
   <sub>Probably the best feature! Users can simply ask the bot for anything, from a concise overview of their expenditure, to insights into their spending habits, to money-saving tips and tricks.</sub>
 </p>
 

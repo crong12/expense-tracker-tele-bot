@@ -39,3 +39,6 @@ notes/
 
 # ignore VS Code workspace settings
 .vscode/
+
+# ignore GSD planning artifacts
+.planning/
