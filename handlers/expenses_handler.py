@@ -385,7 +385,7 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Send initial message
     processing_msg = await context.bot.send_message(
-        chat_id, "🔍 Processing your expense query... This may take a few seconds."
+        chat_id, "🔍 Processing your expense query... This may take a minute or two. Feel free to walk away from this chat while I'm working!"
     )
 
     final_answer = None # Variable to store the final answer when found
@@ -417,9 +417,11 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         # Ignore transient network issues and continue streaming
                         pass
 
-            if isinstance(chunk, tuple) and 'answer_query' in chunk[1]:
-                # extract final answer from chunk but do not exit loop yet
-                final_answer = chunk[1]['answer_query']['messages'][-1].tool_calls[0]["args"]["final_answer"]
+            if isinstance(chunk, tuple) and 'analyst' in chunk[1]:
+                # extract final answer from analyst node when SubmitFinalAnswer is called
+                last_msg = chunk[1]['analyst']['messages'][-1]
+                if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls and last_msg.tool_calls[0]["name"] == "SubmitFinalAnswer":
+                    final_answer = last_msg.tool_calls[0]["args"]["final_answer"]
 
         # loop has ended, delete progress report message
         try:
