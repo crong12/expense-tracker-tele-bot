@@ -35,21 +35,22 @@ async def _send_export(update, context, time_range, start_date=None, end_date=No
         await update.callback_query.message.reply_text("No expenses found to export 😔")
         return ConversationHandler.END
 
-    captions = {
-        "this_month": "Sure, here's a list of your expenses for this month 📊",
-        "all_expenses": "Sure, here's a list of all your expenses so far 📊",
-        "custom_range": (
+    if time_range == "custom_range":
+        caption = (
             f"Sure, here's your expenses from {start_date:%d %b %Y} "
             f"to {end_date:%d %b %Y} 📊"
-        ),
-    }
+        )
+    elif time_range == "this_month":
+        caption = "Sure, here's a list of your expenses for this month 📊"
+    else:
+        caption = "Sure, here's a list of all your expenses so far 📊"
     try:
         with open(file_path, "rb") as document:
             await context.bot.send_document(
                 chat_id=update.effective_chat.id,
                 document=document,
                 filename=os.path.basename(file_path),
-                caption=captions[time_range],
+                caption=caption,
             )
     finally:
         os.remove(file_path)
@@ -74,12 +75,13 @@ async def export_expenses(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Select the start date:", reply_markup=calendar)
         return AWAITING_EXPORT_CONFIRMATION
 
-    if data.startswith("xcal:"):
+    if isinstance(data, str) and data.startswith("xcal:"):
         stored_start = context.user_data.get(EXPORT_START_DATE_KEY)
-        minimum = date.fromisoformat(stored_start) if stored_start else date.min
         try:
+            minimum = date.fromisoformat(stored_start) if stored_start else date.min
             action = parse_calendar_callback(data, minimum, today)
-        except CalendarCallbackError:
+        except (CalendarCallbackError, TypeError, ValueError):
+            context.user_data.pop(EXPORT_START_DATE_KEY, None)
             await query.answer(
                 "That calendar selection is no longer valid.", show_alert=True
             )
