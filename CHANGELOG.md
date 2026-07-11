@@ -2,6 +2,11 @@
 
 All notable changes to the bot will be documented here.
 
+## Unreleased
+
+### Added
+- Custom date-range expense exports using an in-chat calendar. Start and end dates are both included, and future dates cannot be selected.
+
 <br/>
 
 ## 1.5.2 &ndash; 2026-03-28
