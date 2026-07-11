@@ -5,7 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -136,6 +136,24 @@ class ExpenseExportTests(unittest.TestCase):
                 USER_ID, "tester", "custom_range",
                 start_date=date(2026, 7, 2), end_date=date(2026, 7, 1),
             )
+        self.session_factory.assert_not_called()
+
+    def test_custom_range_rejects_non_date_bounds_before_opening_session(self):
+        invalid_ranges = (
+            ("2026-07-01", "2026-07-11"),
+            (date(2026, 7, 1), "2026-07-11"),
+            ("2026-07-01", date(2026, 7, 11)),
+            (datetime(2026, 7, 1), date(2026, 7, 11)),
+            (date(2026, 7, 1), datetime(2026, 7, 11)),
+        )
+        for start_date, end_date in invalid_ranges:
+            with self.subTest(start_date=start_date, end_date=end_date):
+                with self.assertRaisesRegex(
+                    ValueError, "start_date and end_date must be datetime.date values"
+                ):
+                    export_expenses_to_csv(
+                        USER_ID, "tester", "custom_range", start_date, end_date
+                    )
         self.session_factory.assert_not_called()
 
     def test_custom_range_query_is_inclusive_and_ordered(self):

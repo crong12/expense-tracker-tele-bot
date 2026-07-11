@@ -1,7 +1,7 @@
 import csv
 import re
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from sqlalchemy import select, extract
 from database import SessionLocal, Users, Expenses, CategoryRules
 
@@ -124,6 +124,8 @@ def export_expenses_to_csv(
     if time_range == "custom_range":
         if start_date is None or end_date is None:
             raise ValueError("custom_range requires start_date and end_date")
+        if type(start_date) is not date or type(end_date) is not date:
+            raise ValueError("start_date and end_date must be datetime.date values")
         if start_date > end_date:
             raise ValueError("start_date must not be after end_date")
     elif time_range not in {"this_month", "all_expenses"}:

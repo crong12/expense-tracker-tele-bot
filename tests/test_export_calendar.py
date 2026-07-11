@@ -16,6 +16,22 @@ from handlers.export_calendar import (
 
 
 class ExportCalendarTests(unittest.TestCase):
+    def test_minimum_representable_month_renders_with_inert_previous(self):
+        maximum = date(1, 2, 1)
+        action = parse_calendar_callback("xcal:n:0001-01-01", date.min, maximum)
+        markup = build_calendar(action.value, date.min, maximum)
+        self.assertEqual(markup.inline_keyboard[-1][0].callback_data, "xcal:i")
+        self.assertEqual(
+            markup.inline_keyboard[-1][-1].callback_data, "xcal:n:0001-02-01"
+        )
+
+    def test_maximum_representable_month_renders_with_inert_next(self):
+        markup = build_calendar(date(9999, 12, 1), date(9999, 11, 1), date.max)
+        self.assertEqual(
+            markup.inline_keyboard[-1][0].callback_data, "xcal:n:9999-11-01"
+        )
+        self.assertEqual(markup.inline_keyboard[-1][-1].callback_data, "xcal:i")
+
     def test_february_2024_is_monday_first_and_contains_29_days(self):
         markup = build_calendar(date(2024, 2, 1), date(2020, 1, 1), date(2024, 2, 29))
         rows = markup.inline_keyboard

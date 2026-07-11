@@ -42,27 +42,33 @@ def build_calendar(view_month: date, min_date: date, max_date: date) -> InlineKe
 
     rows = [[_button(view_month.strftime("%B %Y"))], [_button(day) for day in WEEKDAYS]]
     month_calendar = calendar.Calendar(firstweekday=calendar.MONDAY)
-    for week in month_calendar.monthdatescalendar(view_month.year, view_month.month):
+    for week in month_calendar.monthdayscalendar(view_month.year, view_month.month):
         row = []
-        for value in week:
-            if value.month != view_month.month:
+        for day in week:
+            if day == 0:
                 row.append(_button(" "))
-            elif min_date <= value <= max_date:
-                row.append(_button(str(value.day), f"{CALENDAR_PREFIX}:d:{value.isoformat()}"))
             else:
-                row.append(_button(str(value.day)))
+                value = view_month.replace(day=day)
+                if min_date <= value <= max_date:
+                    row.append(_button(str(day), f"{CALENDAR_PREFIX}:d:{value.isoformat()}"))
+                else:
+                    row.append(_button(str(day)))
         rows.append(row)
 
-    previous_month = _shift_month(view_month, -1)
-    next_month = _shift_month(view_month, 1)
+    previous_month = None if view_month == date.min else _shift_month(view_month, -1)
+    next_month = (
+        None
+        if (view_month.year, view_month.month) == (date.max.year, date.max.month)
+        else _shift_month(view_month, 1)
+    )
     previous = (
         _button("‹", f"{CALENDAR_PREFIX}:n:{previous_month.isoformat()}")
-        if previous_month >= _month_start(min_date)
+        if previous_month is not None and previous_month >= _month_start(min_date)
         else _button(" ")
     )
     next_button = (
         _button("›", f"{CALENDAR_PREFIX}:n:{next_month.isoformat()}")
-        if next_month <= _month_start(max_date)
+        if next_month is not None and next_month <= _month_start(max_date)
         else _button(" ")
     )
     rows.append([previous, _button(" "), next_button])
