@@ -1,6 +1,13 @@
 import unittest
 from datetime import date
 
+try:
+    from tests.handler_test_bootstrap import ensure_focused_handlers_package
+except ModuleNotFoundError:
+    from handler_test_bootstrap import ensure_focused_handlers_package
+
+ensure_focused_handlers_package()
+
 from handlers.export_calendar import (
     CalendarCallbackError,
     build_calendar,

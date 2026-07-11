@@ -11,6 +11,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from telegram.ext import ConversationHandler
 
+try:
+    from tests.handler_test_bootstrap import ensure_focused_handlers_package
+except ModuleNotFoundError:
+    from handler_test_bootstrap import ensure_focused_handlers_package
+
+ensure_focused_handlers_package()
+
 
 ROOT = Path(__file__).parents[1]
 AWAITING_EXPORT_CONFIRMATION = 7
