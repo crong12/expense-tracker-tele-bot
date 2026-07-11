@@ -74,6 +74,16 @@ def update_for(data):
 
 
 class ExportHandlerTests(unittest.IsolatedAsyncioTestCase):
+    def test_focused_modules_are_loaded_from_real_source_files(self):
+        self.assertEqual(
+            Path(export_handler.__file__).resolve(),
+            (ROOT / "handlers" / "export.py").resolve(),
+        )
+        self.assertEqual(
+            Path(export_calendar.__file__).resolve(),
+            (ROOT / "handlers" / "export_calendar.py").resolve(),
+        )
+
     def setUp(self):
         self.context = SimpleNamespace(user_data={}, bot=SimpleNamespace(send_document=AsyncMock()))
         self.tempdir = tempfile.TemporaryDirectory()
@@ -179,6 +189,26 @@ class ExportHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_string_persisted_start_date_is_cleared_and_alerted(self):
         update = update_for("xcal:d:2026-07-11")
         self.context.user_data["export_start_date"] = 123
+        result = await export_expenses(update, self.context)
+        self.assertNotIn("export_start_date", self.context.user_data)
+        update.callback_query.answer.assert_awaited_once_with(
+            "That calendar selection is no longer valid.", show_alert=True
+        )
+        self.assertEqual(result, AWAITING_EXPORT_CONFIRMATION)
+
+    async def test_empty_persisted_start_date_is_cleared_and_alerted(self):
+        update = update_for("xcal:d:2026-07-11")
+        self.context.user_data["export_start_date"] = ""
+        result = await export_expenses(update, self.context)
+        self.assertNotIn("export_start_date", self.context.user_data)
+        update.callback_query.answer.assert_awaited_once_with(
+            "That calendar selection is no longer valid.", show_alert=True
+        )
+        self.assertEqual(result, AWAITING_EXPORT_CONFIRMATION)
+
+    async def test_zero_persisted_start_date_is_cleared_and_alerted(self):
+        update = update_for("xcal:d:2026-07-11")
+        self.context.user_data["export_start_date"] = 0
         result = await export_expenses(update, self.context)
         self.assertNotIn("export_start_date", self.context.user_data)
         update.callback_query.answer.assert_awaited_once_with(

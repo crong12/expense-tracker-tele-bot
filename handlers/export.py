@@ -78,7 +78,11 @@ async def export_expenses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(data, str) and data.startswith("xcal:"):
         stored_start = context.user_data.get(EXPORT_START_DATE_KEY)
         try:
-            minimum = date.fromisoformat(stored_start) if stored_start else date.min
+            minimum = (
+                date.fromisoformat(stored_start)
+                if stored_start is not None
+                else date.min
+            )
             action = parse_calendar_callback(data, minimum, today)
         except (CalendarCallbackError, TypeError, ValueError):
             context.user_data.pop(EXPORT_START_DATE_KEY, None)
@@ -88,13 +92,17 @@ async def export_expenses(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return AWAITING_EXPORT_CONFIRMATION
 
         await query.answer()
-        prompt = "Select the end date:" if stored_start else "Select the start date:"
+        prompt = (
+            "Select the end date:"
+            if stored_start is not None
+            else "Select the start date:"
+        )
         if action.kind == "navigate":
             calendar = build_calendar(action.value, minimum, today)
             await query.message.edit_text(prompt, reply_markup=calendar)
             return AWAITING_EXPORT_CONFIRMATION
 
-        if not stored_start:
+        if stored_start is None:
             context.user_data[EXPORT_START_DATE_KEY] = action.value.isoformat()
             calendar = build_calendar(action.value.replace(day=1), action.value, today)
             await query.message.edit_text("Select the end date:", reply_markup=calendar)
