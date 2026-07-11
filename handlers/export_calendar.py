@@ -55,7 +55,11 @@ def build_calendar(view_month: date, min_date: date, max_date: date) -> InlineKe
 
     previous_month = _shift_month(view_month, -1)
     next_month = _shift_month(view_month, 1)
-    previous = _button("‹", f"{CALENDAR_PREFIX}:n:{previous_month.isoformat()}")
+    previous = (
+        _button("‹", f"{CALENDAR_PREFIX}:n:{previous_month.isoformat()}")
+        if previous_month >= _month_start(min_date)
+        else _button(" ")
+    )
     next_button = (
         _button("›", f"{CALENDAR_PREFIX}:n:{next_month.isoformat()}")
         if next_month <= _month_start(max_date)
@@ -74,8 +78,9 @@ def parse_calendar_callback(data: str, min_date: date, max_date: date) -> Calend
     if prefix != CALENDAR_PREFIX or action not in {"n", "d"}:
         raise CalendarCallbackError("Invalid calendar action")
     if action == "n":
-        value = _month_start(value)
-        if value > _month_start(max_date):
+        if value.day != 1:
+            raise CalendarCallbackError("Navigation date must be a month start")
+        if not _month_start(min_date) <= value <= _month_start(max_date):
             raise CalendarCallbackError("Month is outside the allowed range")
         return CalendarAction("navigate", value)
     if not min_date <= value <= max_date:

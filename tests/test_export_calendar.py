@@ -25,6 +25,18 @@ class ExportCalendarTests(unittest.TestCase):
         january = build_calendar(date(2026, 1, 1), date(2020, 1, 1), date(2026, 1, 15))
         self.assertEqual(january.inline_keyboard[-1][-1].callback_data, "xcal:i")
 
+    def test_navigation_hides_previous_month_at_minimum(self):
+        minimum = date(2026, 1, 10)
+        maximum = date(2026, 7, 11)
+        january = build_calendar(date(2026, 1, 1), minimum, maximum)
+        self.assertEqual(january.inline_keyboard[-1][0].callback_data, "xcal:i")
+
+    def test_parser_rejects_navigation_before_minimum_month(self):
+        minimum = date(2026, 1, 10)
+        maximum = date(2026, 7, 11)
+        with self.assertRaises(CalendarCallbackError):
+            parse_calendar_callback("xcal:n:2025-12-01", minimum, maximum)
+
     def test_days_outside_range_are_inert(self):
         markup = build_calendar(date(2026, 1, 1), date(2026, 1, 10), date(2026, 1, 15))
         callbacks = {
@@ -47,6 +59,10 @@ class ExportCalendarTests(unittest.TestCase):
         )
         selected = parse_calendar_callback("xcal:d:2026-07-11", minimum, maximum)
         self.assertEqual((selected.kind, selected.value), ("select", maximum))
+
+    def test_parser_rejects_navigation_date_that_is_not_month_start(self):
+        with self.assertRaises(CalendarCallbackError):
+            parse_calendar_callback("xcal:n:2026-01-15", date(2026, 1, 1), date(2026, 7, 11))
 
     def test_parser_rejects_malformed_and_out_of_range_callbacks(self):
         minimum = date(2026, 1, 10)
