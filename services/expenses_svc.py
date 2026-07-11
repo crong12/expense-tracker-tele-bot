@@ -118,8 +118,17 @@ def update_expense(expense_id, price, category, description, date, currency):
     finally:
         session.close()
 
-def export_expenses_to_csv(user_id, tele_handle, time_range):
-    """export user's expenses to CSV"""
+def export_expenses_to_csv(
+        user_id, tele_handle, time_range, start_date=None, end_date=None):
+    """Export a user's expenses to CSV for a named or inclusive custom range."""
+    if time_range == "custom_range":
+        if start_date is None or end_date is None:
+            raise ValueError("custom_range requires start_date and end_date")
+        if start_date > end_date:
+            raise ValueError("start_date must not be after end_date")
+    elif time_range not in {"this_month", "all_expenses"}:
+        raise ValueError(f"Unsupported export time range: {time_range}")
+
     session = SessionLocal()
     file_path = f"expenses_{tele_handle}.csv"  # name the file based on user's telegram handle
 
@@ -135,8 +144,14 @@ def export_expenses_to_csv(user_id, tele_handle, time_range):
                 .where(extract('month', Expenses.date) == current_month)
                 .where(extract('year', Expenses.date) == current_year)
                 .order_by(Expenses.date))
+        elif time_range == "custom_range":
+            result = session.execute(
+                select(Expenses)
+                .where(Expenses.user_id == user_id)
+                .where(Expenses.date >= start_date)
+                .where(Expenses.date <= end_date)
+                .order_by(Expenses.date))
         else:
-            # get all expenses
             result = session.execute(
                 select(Expenses)
                 .where(Expenses.user_id == user_id)
