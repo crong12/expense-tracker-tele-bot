@@ -43,4 +43,5 @@ notes/
 # ignore local planning and agent workflow artifacts
 .planning/
 .superpowers/
+.worktrees/
 docs/superpowers/
