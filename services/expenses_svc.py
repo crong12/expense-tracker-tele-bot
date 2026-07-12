@@ -19,6 +19,9 @@ def get_or_create_user(telegram_id):
         session.commit()
         session.refresh(new_user)
         return new_user.id
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 
@@ -193,34 +196,30 @@ def export_expenses_to_csv(
 def exact_expense_matching(expense_text):
     """Find an expense in the database by matching its details."""
     session = SessionLocal()
+    try:
+        currency_pattern = r"Currency: (\w+)"
+        amount_pattern = r"Amount: ([\d.]+)"
+        category_pattern = r"Category:\s*(.+)"
+        description_pattern = r"Description:\s*(.+)"
+        date_pattern = r"Date: (\d{4}-\d{2}-\d{2})"
 
-    # extract details from the text
-    currency_pattern = r"Currency: (\w+)"
-    amount_pattern = r"Amount: ([\d.]+)"
-    category_pattern = r"Category:\s*(.+)"
-    description_pattern = r"Description:\s*(.+)"
-    date_pattern = r"Date: (\d{4}-\d{2}-\d{2})"
+        currency = re.search(currency_pattern, expense_text).group(1)
+        amount = float(re.search(amount_pattern, expense_text).group(1))
+        category = re.search(category_pattern, expense_text).group(1)
+        description = re.search(description_pattern, expense_text).group(1)
+        expense_date = re.search(date_pattern, expense_text).group(1)
+        date_obj = datetime.strptime(expense_date, "%Y-%m-%d").date()
 
-    currency = re.search(currency_pattern, expense_text).group(1)
-    amount = float(re.search(amount_pattern, expense_text).group(1))
-    category = re.search(category_pattern, expense_text).group(1)
-    description = re.search(description_pattern, expense_text).group(1)
-    date = re.search(date_pattern, expense_text).group(1)
-
-    date_obj = datetime.strptime(date, "%Y-%m-%d").date()  # convert string to date
-
-    # Try to find a matching expense
-    expense = session.query(Expenses).filter(
-        Expenses.price == float(amount),
-        Expenses.category == category,
-        Expenses.description == description,
-        Expenses.date == date_obj,
-        Expenses.currency == currency
-    ).first()
-
-    session.close()
-
-    return expense.id if expense else None
+        matches = session.query(Expenses).filter(
+            Expenses.price == float(amount),
+            Expenses.category == category,
+            Expenses.description == description,
+            Expenses.date == date_obj,
+            Expenses.currency == currency
+        ).limit(2).all()
+        return matches[0].id if len(matches) == 1 else None
+    finally:
+        session.close()
 
 def delete_all_expenses(user_id):
     """delete all expenses for a specific user"""

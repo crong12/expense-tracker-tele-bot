@@ -1,6 +1,8 @@
 import csv
 import importlib.util
+import os
 import sys
+import socket
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -10,6 +12,7 @@ from sqlalchemy.orm import Session as SASession, sessionmaker
 
 from database import CategoryRules, Expenses, Users, create_database_engine, create_session_factory
 from pathlib import Path
+from urllib.parse import urlparse
 
 service_path = Path(__file__).parents[2] / "services" / "expenses_svc.py"
 spec = importlib.util.spec_from_file_location("integration_expenses_svc", service_path)
@@ -88,6 +91,15 @@ def test_exact_matching_returns_expected_id_and_rejects_nonmatch(db):
     text = "Currency: GBP\nAmount: 7.50\nCategory: Coffee\nDescription: Flat white\nDate: 2026-07-03"
     assert expenses_svc.exact_expense_matching(text) == expense_id
     assert expenses_svc.exact_expense_matching(text.replace("Flat white", "Tea")) is None
+
+
+def test_exact_matching_rejects_identical_cross_user_matches(db):
+    first, second = _user(1502), _user(1503)
+    first_id = _expense(first, amount="7.50", category="Coffee", description="Shared", day=date(2026, 7, 3), currency="GBP")
+    second_id = _expense(second, amount="7.50", category="Coffee", description="Shared", day=date(2026, 7, 3), currency="GBP")
+    text = "Currency: GBP\nAmount: 7.50\nCategory: Coffee\nDescription: Shared\nDate: 2026-07-03"
+    assert expenses_svc.exact_expense_matching(text) is None
+    assert first_id != second_id
 
 
 def test_specific_and_bulk_deletion_are_user_isolated(db):
@@ -170,6 +182,15 @@ class FailingCommitSession(SASession):
         super().close()
 
 
+def test_get_or_create_commit_failure_rolls_back_closes_and_preserves_exception(db, monkeypatch):
+    FailingCommitSession.rollback_calls = FailingCommitSession.close_calls = 0
+    monkeypatch.setattr(expenses_svc, "SessionLocal", sessionmaker(bind=db.kw["bind"], class_=FailingCommitSession))
+    with pytest.raises(RuntimeError, match="forced commit failure"):
+        expenses_svc.get_or_create_user(1902)
+    assert FailingCommitSession.rollback_calls == 1
+    assert FailingCommitSession.close_calls == 1
+
+
 @pytest.mark.parametrize(
     ("operation", "expected"),
     [
@@ -201,3 +222,28 @@ def test_read_sessions_close_deterministically(db, monkeypatch):
     monkeypatch.setattr(expenses_svc, "SessionLocal", factory)
     expenses_svc.get_user_preferred_currency(999999)
     assert closes == [True]
+
+
+def test_exact_matching_closes_session_when_parsing_raises(db, monkeypatch):
+    closes = []
+    class TrackingSession(SASession):
+        def close(self):
+            closes.append(True)
+            super().close()
+    monkeypatch.setattr(expenses_svc, "SessionLocal", sessionmaker(bind=db.kw["bind"], class_=TrackingSession))
+    with pytest.raises(AttributeError):
+        expenses_svc.exact_expense_matching("malformed")
+    assert closes == [True]
+
+
+def test_integration_socket_guard_allows_database_only(db):
+    with db() as session:
+        assert session.execute(select(1)).scalar_one() == 1
+    database_port = urlparse(os.environ["TEST_DATABASE_URL"]).port
+    for endpoint in (("127.0.0.1", database_port + 1), ("8.8.8.8", 53)):
+        candidate = socket.socket()
+        try:
+            with pytest.raises(RuntimeError, match="not the test database"):
+                candidate.connect(endpoint)
+        finally:
+            candidate.close()

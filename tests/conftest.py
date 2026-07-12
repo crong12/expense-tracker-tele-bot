@@ -40,7 +40,7 @@ def _asyncio_socketpair():
 
 @pytest.fixture(autouse=True)
 def _block_network_access(request, monkeypatch):
-    if request.node.get_closest_marker("live") or request.node.get_closest_marker("integration"):
+    if request.node.get_closest_marker("live"):
         enable_socket()
     else:
         # Windows asyncio needs one private loopback pair; all test-created
