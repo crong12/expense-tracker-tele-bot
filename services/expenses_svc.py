@@ -96,16 +96,17 @@ def insert_expense(user_id, price, category, description, date, currency):
 def update_expense(expense_id, price, category, description, date, currency):
     """updates an existing expense record in the database"""
     session = SessionLocal()
-    expense = session.query(Expenses)\
-        .filter(Expenses.id == expense_id).first()
-
-    expense.price = price
-    expense.category = category
-    expense.description = description
-    expense.date = date
-    expense.currency = currency
-
     try:
+        expense = session.query(Expenses)\
+            .filter(Expenses.id == expense_id).first()
+        if expense is None:
+            return False
+
+        expense.price = price
+        expense.category = category
+        expense.description = description
+        expense.date = date
+        expense.currency = currency
         session.commit()
         session.refresh(expense)
         return expense.id
@@ -145,19 +146,19 @@ def export_expenses_to_csv(
                 .where(Expenses.user_id == user_id)
                 .where(extract('month', Expenses.date) == current_month)
                 .where(extract('year', Expenses.date) == current_year)
-                .order_by(Expenses.date))
+                .order_by(Expenses.date, Expenses.id))
         elif time_range == "custom_range":
             result = session.execute(
                 select(Expenses)
                 .where(Expenses.user_id == user_id)
                 .where(Expenses.date >= start_date)
                 .where(Expenses.date <= end_date)
-                .order_by(Expenses.date))
+                .order_by(Expenses.date, Expenses.id))
         else:
             result = session.execute(
                 select(Expenses)
                 .where(Expenses.user_id == user_id)
-                .order_by(Expenses.date))
+                .order_by(Expenses.date, Expenses.id))
 
         relevant_expenses = result.scalars().all()
         if not relevant_expenses:    # no expenses found
@@ -232,6 +233,7 @@ def delete_all_expenses(user_id):
         return True
 
     except Exception as e:  # pylint: disable=broad-except
+        session.rollback()
         print("Error exporting expenses: %s", str(e))
         return False
 

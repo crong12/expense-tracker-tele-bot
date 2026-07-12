@@ -22,6 +22,9 @@ INERT_ENVIRONMENT = {
 for name, value in INERT_ENVIRONMENT.items():
     os.environ[name] = value
 
+if os.environ.get("TEST_DATABASE_URL"):
+    os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
+
 
 _REAL_SOCKETPAIR = socket.socketpair
 
@@ -37,7 +40,7 @@ def _asyncio_socketpair():
 
 @pytest.fixture(autouse=True)
 def _block_network_access(request, monkeypatch):
-    if request.node.get_closest_marker("live"):
+    if request.node.get_closest_marker("live") or request.node.get_closest_marker("integration"):
         enable_socket()
     else:
         # Windows asyncio needs one private loopback pair; all test-created

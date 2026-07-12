@@ -1,17 +1,33 @@
 import uuid
+import os
 from datetime import datetime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, Column, UUID, BigInteger, \
     String, Integer, ForeignKey, Numeric, Date, DateTime, Text
-from config import DB_USER, DB_PASSWORD, DB_NAME, DB_HOST, DB_PORT
+from sqlalchemy.engine import Engine
+if os.environ.get("DATABASE_URL"):
+    DATABASE_URL = os.environ["DATABASE_URL"]
+else:
+    from config import DB_USER, DB_PASSWORD, DB_NAME, DB_HOST, DB_PORT
+    DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-PERSISTENCE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+PERSISTENCE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql://", 1)
+
+
+def create_database_engine(url: str) -> Engine:
+    """Create the application's PostgreSQL engine for an explicit URL."""
+    return create_engine(url, pool_size=2, max_overflow=3, pool_pre_ping=True)
+
+
+def create_session_factory(database_engine: Engine) -> sessionmaker:
+    """Create a session factory bound to the supplied engine."""
+    return sessionmaker(bind=database_engine)
 
 # create connection engine
-engine = create_engine(DATABASE_URL, pool_size=2, max_overflow=3, pool_pre_ping=True)
-SessionLocal = sessionmaker(bind=engine)
+engine = create_database_engine(DATABASE_URL)
+SessionLocal = create_session_factory(engine)
+Session = SessionLocal
 
 # define tables (as ORM classes)
 Base = declarative_base()
