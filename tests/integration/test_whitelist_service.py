@@ -48,8 +48,8 @@ def test_duplicate_add_returns_false_and_keeps_one_row(db):
 
 
 def test_remove_existing_succeeds_and_removes_row(db):
-    assert whitelist_svc.add_to_whitelist("dave") is True
-    assert whitelist_svc.remove_from_whitelist("dave") is True
+    assert whitelist_svc.add_to_whitelist("Dave") is True
+    assert whitelist_svc.remove_from_whitelist("@DAVE") is True
     assert whitelist_svc.is_user_whitelisted("dave") is False
 
 

@@ -8,15 +8,28 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 from pytest_socket import disable_socket, enable_socket
 
-from database import create_database_engine
-
-
 _REAL_CONNECT = socket.socket.connect
+
+# Integration test modules import ORM models during collection even when their
+# marker is deselected. Keep that import inert when no integration database was
+# requested; no connection is opened during collection.
+if not os.environ.get("TEST_DATABASE_URL"):
+    os.environ.setdefault(
+        "DATABASE_URL",
+        "postgresql+psycopg2://collection:collection@127.0.0.1:1/collection_only",
+    )
 
 
 @pytest.fixture
 def integration_test_support():
     return sys.modules[__name__]
+
+
+def create_database_engine(url):
+    """Collection-safe seam around the application's engine factory."""
+    from database import create_database_engine as application_engine_factory
+
+    return application_engine_factory(url)
 
 
 def _validated_test_database_endpoint():
