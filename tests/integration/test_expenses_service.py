@@ -247,3 +247,12 @@ def test_integration_socket_guard_allows_database_only(db):
                 candidate.connect(endpoint)
         finally:
             candidate.close()
+
+
+def test_non_loopback_database_url_is_rejected_before_engine_creation(monkeypatch, integration_test_support):
+    engine_calls = []
+    monkeypatch.setenv("TEST_DATABASE_URL", "postgresql+psycopg2://test@8.8.8.8:5432/test")
+    monkeypatch.setattr(integration_test_support, "create_database_engine", lambda url: engine_calls.append(url))
+    with pytest.raises(pytest.fail.Exception, match="resolve only to loopback"):
+        integration_test_support._create_validated_postgres_engine()
+    assert engine_calls == []

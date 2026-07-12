@@ -5,29 +5,57 @@ import sys
 from urllib.parse import urlparse
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from pytest_socket import enable_socket
+from pytest_socket import disable_socket, enable_socket
+
+from database import create_database_engine
 
 
 _REAL_CONNECT = socket.socket.connect
 
 
-@pytest.fixture(autouse=True)
-def _allow_only_test_database_endpoint(monkeypatch):
+@pytest.fixture
+def integration_test_support():
+    return sys.modules[__name__]
+
+
+def _validated_test_database_endpoint():
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
-        yield
-        return
+        pytest.skip("TEST_DATABASE_URL is required for PostgreSQL integration tests")
     parsed = urlparse(url)
     host, port = parsed.hostname, parsed.port
-    try:
-        addresses = {item[4][0] for item in socket.getaddrinfo(host, port)}
-    except socket.gaierror as error:
-        pytest.fail(f"Cannot resolve TEST_DATABASE_URL host: {error}")
-    if not addresses or any(not ipaddress.ip_address(address).is_loopback for address in addresses):
-        pytest.fail("TEST_DATABASE_URL must resolve only to loopback addresses")
+    if not host or not port:
+        pytest.fail("TEST_DATABASE_URL must include a host and port")
 
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if host.lower() != "localhost":
+            pytest.fail("TEST_DATABASE_URL must resolve only to loopback addresses")
+        try:
+            addresses = {item[4][0] for item in socket.getaddrinfo(host, port)}
+        except socket.gaierror as error:
+            pytest.fail(f"Cannot resolve TEST_DATABASE_URL host: {error}")
+    else:
+        addresses = {str(address)}
+
+    if not addresses or any(not ipaddress.ip_address(item).is_loopback for item in addresses):
+        pytest.fail("TEST_DATABASE_URL must resolve only to loopback addresses")
+    return url, host, port, addresses
+
+
+def _create_validated_postgres_engine():
+    url, _, _, _ = _validated_test_database_endpoint()
+    return create_database_engine(url)
+
+
+@pytest.fixture(autouse=True)
+def _allow_only_test_database_endpoint(monkeypatch):
+    if not os.environ.get("TEST_DATABASE_URL"):
+        yield
+        return
+    _, host, port, addresses = _validated_test_database_endpoint()
     allowed = {(address, port) for address in addresses} | {(host, port)}
 
     def guarded_connect(instance, address):
@@ -38,15 +66,15 @@ def _allow_only_test_database_endpoint(monkeypatch):
 
     enable_socket()
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
-    yield
+    try:
+        yield
+    finally:
+        disable_socket()
 
 
 @pytest.fixture(scope="session")
 def postgres_engine():
-    url = os.environ.get("TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("TEST_DATABASE_URL is required for PostgreSQL integration tests")
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = _create_validated_postgres_engine()
     if engine.dialect.name != "postgresql":
         engine.dispose()
         pytest.fail("TEST_DATABASE_URL must point to PostgreSQL")
