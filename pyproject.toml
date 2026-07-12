@@ -1,0 +1,14 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--strict-config --strict-markers"
+markers = [
+    "unit: fast tests isolated from external systems",
+    "integration: tests spanning application components",
+    "smoke: minimal critical-path checks",
+    "live: tests permitted to access live external services",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["config", "database", "handlers", "services", "utils"]

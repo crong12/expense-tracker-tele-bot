@@ -5,9 +5,12 @@ from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableLambda, RunnableWithFallbacks
 from langgraph.prebuilt import ToolNode
 
-def title_case(s: str) -> str:
+def to_title_case(s: str) -> str:
     """helper function to format strings to title case"""
     return ' '.join(word[0].upper() + word[1:].lower() for word in s.split())
+
+
+title_case = to_title_case
 
 def str_to_json(text: str) -> dict:
     """
