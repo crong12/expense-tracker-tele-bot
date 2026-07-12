@@ -1,7 +1,8 @@
 import os
+import socket
 
 import pytest
-from pytest_socket import enable_socket, socket_allow_hosts
+from pytest_socket import disable_socket, enable_socket
 
 
 INERT_ENVIRONMENT = {
@@ -19,17 +20,32 @@ INERT_ENVIRONMENT = {
 }
 
 for name, value in INERT_ENVIRONMENT.items():
-    os.environ.setdefault(name, value)
+    os.environ[name] = value
+
+
+_REAL_SOCKETPAIR = socket.socketpair
+
+
+def _asyncio_socketpair():
+    """Create only the private loopback pair used by Windows event loops."""
+    enable_socket()
+    try:
+        return _REAL_SOCKETPAIR()
+    finally:
+        disable_socket()
 
 
 @pytest.fixture(autouse=True)
-def _block_network_access(request):
+def _block_network_access(request, monkeypatch):
     if request.node.get_closest_marker("live"):
         enable_socket()
     else:
-        # Windows asyncio uses a loopback socket pair to wake its event loop.
-        socket_allow_hosts(["localhost", "127.0.0.1", "::1"])
+        # Windows asyncio needs one private loopback pair; all test-created
+        # sockets, including connections to local services, remain blocked.
+        monkeypatch.setattr(socket, "socketpair", _asyncio_socketpair)
+        disable_socket()
     yield
+    enable_socket()
 
 
 @pytest.fixture
