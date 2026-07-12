@@ -59,12 +59,15 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "export_expenses":
         export_keyboard = [
-            [InlineKeyboardButton("Just this month's", callback_data="this_month"),
-             InlineKeyboardButton("All expenses", callback_data="all_expenses")]
+            [InlineKeyboardButton("This month", callback_data="this_month")],
+            [InlineKeyboardButton("Custom range", callback_data="custom_range")],
+            [InlineKeyboardButton("All expenses", callback_data="all_expenses")],
         ]
         reply_markup = InlineKeyboardMarkup(export_keyboard)
-        await query.message.reply_text("Would you like this month's expenses or all your expenses so far?",
-                                       reply_markup=reply_markup)
+        await query.message.reply_text(
+            "Which expenses would you like to export?",
+            reply_markup=reply_markup,
+        )
         return AWAITING_EXPORT_CONFIRMATION
 
     if query.data == "delete_expenses":

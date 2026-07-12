@@ -342,7 +342,7 @@ Click **`🔍 Analyse Expenses`** and ask the bot something about your expenses.
 </p>
 
 ### **6️⃣ Export Expenses**
-Click **`📊 Export Expenses`** to receive a CSV file of your past expenses.
+Click **`📊 Export Expenses`** to receive a CSV containing this month's expenses, all recorded expenses, or an inclusive custom date range selected from an in-chat calendar.
 
 ### **7️⃣ Quit the Bot**
 Click **`❌ Quit`** or type **`/quit`** at any point in the conversation to exit.

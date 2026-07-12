@@ -40,5 +40,7 @@ notes/
 # ignore VS Code workspace settings
 .vscode/
 
-# ignore GSD planning artifacts
+# ignore local planning and agent workflow artifacts
 .planning/
+.superpowers/
+docs/superpowers/
