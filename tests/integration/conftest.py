@@ -95,10 +95,14 @@ def postgres_engine():
 @pytest.fixture
 def db(postgres_engine, monkeypatch):
     from database import CategoryRules, Expenses, Users, WhitelistedUsers
-    expenses_svc = sys.modules["integration_expenses_svc"]
+    expenses_svc = sys.modules.get("integration_expenses_svc")
+    whitelist_svc = sys.modules.get("integration_whitelist_svc")
 
     factory = sessionmaker(bind=postgres_engine)
-    monkeypatch.setattr(expenses_svc, "SessionLocal", factory)
+    if expenses_svc is not None:
+        monkeypatch.setattr(expenses_svc, "SessionLocal", factory)
+    if whitelist_svc is not None:
+        monkeypatch.setattr(whitelist_svc, "SessionLocal", factory)
     with postgres_engine.begin() as connection:
         for table in (CategoryRules, Expenses, WhitelistedUsers, Users):
             connection.execute(table.__table__.delete())

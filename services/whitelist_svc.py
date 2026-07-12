@@ -134,12 +134,14 @@ def get_all_whitelisted_users() -> list:
     """
     session = SessionLocal()
     try:
-        whitelisted_users = session.query(WhitelistedUsers).all()
+        whitelisted_users = session.query(WhitelistedUsers)\
+            .order_by(WhitelistedUsers.username.asc())\
+            .all()
 
         result = [
             {
                 'username': user.username,
-                'added_date': user.added_date,
+                'added_date': user.added_date.isoformat(),
                 'notes': user.notes
             }
             for user in whitelisted_users
