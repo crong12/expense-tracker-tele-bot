@@ -49,6 +49,15 @@ def test_context_cleanup_helpers_preserve_unrelated_values():
     assert data == {"keep": 1}
 
 
+@pytest.mark.parametrize("value", [
+    {**EXPENSE, "price": "12.50"}, {**EXPENSE, "price": -1},
+    {**EXPENSE, "currency": "gbp"}, {**EXPENSE, "category": ""},
+    {**EXPENSE, "description": None}, {**EXPENSE, "date": "tomorrow"},
+])
+def test_expense_shape_validator_rejects_bad_key_complete_values(value):
+    assert expenses_handler._is_valid_expense(value) is False
+
+
 async def test_photo_failure_removes_downloaded_file(monkeypatch):
     """A parser error must not strand a receipt on disk."""
     scenario = TelegramScenario(photos=[SimpleNamespace(get_file=AsyncMock())], caption="receipt")
@@ -80,6 +89,7 @@ async def test_photo_uses_highest_resolution_caption_and_removes_file(monkeypatc
     low.get_file.assert_not_awaited()
     high_file.download_to_drive.assert_awaited_once_with(custom_path="/tmp/high.jpg")
     image.assert_awaited_once_with("/tmp/high.jpg", caption="business lunch", preferred_currency="GBP", existing_categories=["Food"], category_rules=[])
+    expenses_handler.os.remove.assert_called_once_with("/tmp/high.jpg")
 
 
 async def test_delete_confirmation_recovers_from_missing_mode_without_deleting(monkeypatch):
@@ -136,6 +146,34 @@ async def test_malformed_insert_result_keeps_context_clean_and_returns_safe_stat
     assert result == WAITING_FOR_EXPENSE
     assert "parsed_expense" not in scenario.context.user_data
     assert "issue processing" in scenario.message.reply_text.await_args.args[0]
+
+
+async def test_invalid_confirmation_clears_all_owned_context(monkeypatch):
+    scenario = TelegramScenario(callback_data="confirmation")
+    scenario.context.user_data.update({"parsed_expense": {**EXPENSE, "price": "bad"}, "is_editing": True, "editing_expense_id": 3, "category_corrected": True, "keep": 1})
+    monkeypatch.setattr(expenses_handler, "get_or_create_user", MagicMock(return_value="u"))
+    await expenses_handler.handle_confirmation(scenario.update, scenario.context)
+    assert scenario.context.user_data == {"keep": 1}
+
+
+@pytest.mark.parametrize("handler", ["insert", "refine", "edit"])
+async def test_bad_key_complete_structured_results_are_never_formatted(monkeypatch, handler):
+    invalid = {**EXPENSE, "price": "not-a-number"}
+    if handler == "insert":
+        scenario = TelegramScenario(text="lunch")
+        configure_insert(monkeypatch)
+        monkeypatch.setattr(expenses_handler, "process_expense_text", AsyncMock(return_value="x"))
+    elif handler == "refine":
+        scenario = TelegramScenario(text="change")
+        scenario.context.user_data["parsed_expense"] = EXPENSE
+        monkeypatch.setattr(expenses_handler, "refine_expense_details", AsyncMock(return_value="x"))
+    else:
+        scenario = TelegramScenario(text="change", reply_to_text="Expense ID: 2\nCurrency: GBP")
+        monkeypatch.setattr(expenses_handler, "refine_expense_details", AsyncMock(return_value="x"))
+    monkeypatch.setattr(expenses_handler, "str_to_json", MagicMock(return_value=invalid))
+    result = await ({"insert": expenses_handler.process_insert, "refine": expenses_handler.refine_details, "edit": expenses_handler.process_edit}[handler])(scenario.update, scenario.context)
+    assert result in (WAITING_FOR_EXPENSE, AWAITING_REFINEMENT, AWAITING_EDIT)
+    assert scenario.context.user_data.get("parsed_expense") != invalid
 
 
 async def test_confirmation_inserts_normalized_expense_and_prompts_for_next(monkeypatch):
@@ -261,6 +299,14 @@ async def test_refinement_exception_preserves_original_details(monkeypatch):
     assert scenario.context.user_data["parsed_expense"] == EXPENSE
 
 
+async def test_refinement_without_original_details_does_not_call_collaborator(monkeypatch):
+    scenario = TelegramScenario(text="change it")
+    collaborator = AsyncMock()
+    monkeypatch.setattr(expenses_handler, "refine_expense_details", collaborator)
+    assert await expenses_handler.refine_details(scenario.update, scenario.context) == AWAITING_REFINEMENT
+    collaborator.assert_not_awaited()
+
+
 async def test_edit_requires_reply_target():
     scenario = TelegramScenario(text="change amount")
 
@@ -324,6 +370,22 @@ async def test_specific_delete_falls_back_to_matching_and_stores_only_selected_i
     assert scenario.context.user_data["expense_id"] == 55
 
 
+async def test_delete_requires_reply_and_extracts_embedded_id_and_retries_no_match(monkeypatch):
+    scenario = TelegramScenario(text="delete")
+    assert await expenses_handler.process_delete(scenario.update, scenario.context) == AWAITING_DELETE_REQUEST
+    assert "Please reply" in scenario.message.reply_text.await_args.args[0]
+    scenario = TelegramScenario(text="delete", reply_to_text="Expense ID: 99")
+    matcher = MagicMock()
+    monkeypatch.setattr(expenses_handler, "exact_expense_matching", matcher)
+    assert await expenses_handler.process_delete(scenario.update, scenario.context) == AWAITING_DELETE_CONFIRMATION
+    assert scenario.context.user_data["expense_id"] == 99
+    matcher.assert_not_called()
+    scenario = TelegramScenario(text="delete", reply_to_text="no id")
+    monkeypatch.setattr(expenses_handler, "exact_expense_matching", MagicMock(return_value=None))
+    assert await expenses_handler.process_delete(scenario.update, scenario.context) == AWAITING_DELETE_REQUEST
+    assert "couldn't find" in scenario.message.reply_text.await_args.args[-1]
+
+
 @pytest.mark.parametrize(("mode", "operation", "expected"), [("all", True, "All your expenses"), ("all", False, "error occurred"), ("specific", True, "deleted successfully"), ("specific", False, "Failed to delete")])
 async def test_delete_confirmation_delegates_correctly_and_cleans_context(monkeypatch, mode, operation, expected):
     scenario = TelegramScenario(callback_data="confirmation")
@@ -377,6 +439,17 @@ async def test_rule_failure_or_missing_data_does_not_call_invalid_service(monkey
     assert "pending_rule_keyword" not in scenario.context.user_data
 
 
+@pytest.mark.parametrize(("callback", "service_result"), [("save_rule", True), ("save_rule", False), ("save_rule", None), ("skip_rule", None)])
+async def test_rule_terminal_paths_preserve_identity_cleanup_and_prompt(monkeypatch, callback, service_result):
+    scenario = TelegramScenario(callback_data=callback)
+    scenario.context.user_data.update({"user_id": "u", "telegram_id": 101, "pending_rule_keyword": "tea", "pending_rule_category": "Food", "keep": 1})
+    monkeypatch.setattr(expenses_handler, "insert_category_rule", MagicMock(return_value=service_result))
+    await expenses_handler.handle_category_rule(scenario.update, scenario.context)
+    assert "pending_rule_keyword" not in scenario.context.user_data and "pending_rule_category" not in scenario.context.user_data
+    assert scenario.context.user_data["user_id"] == "u" and scenario.context.user_data["keep"] == 1
+    assert scenario.bot.send_message.await_args_list[-1].args[1] == "Would you like to add another expense? Type it below or send /start to go back to the main menu."
+
+
 async def test_skip_rule_acknowledges_and_cleans_pending_context():
     scenario = TelegramScenario(callback_data="skip_rule")
     scenario.context.user_data.update({"pending_rule_keyword": "cafe", "pending_rule_category": "Food"})
@@ -408,7 +481,8 @@ async def test_query_builds_user_scoped_prompt_streams_progress_and_saves_final_
     monkeypatch.setattr(expenses_handler, "get_or_create_user", MagicMock(return_value="uuid-1"))
     monkeypatch.setattr(expenses_handler, "get_categories", MagicMock(return_value=["Food", "Travel"]))
     monkeypatch.setattr(expenses_handler, "get_current_date", MagicMock(return_value=("2026-07-18", "Saturday")))
-    monkeypatch.setattr(expenses_handler, "escape", MagicMock(side_effect=lambda value: value))
+    escape = MagicMock(return_value="escaped answer")
+    monkeypatch.setattr(expenses_handler, "escape", escape)
     monkeypatch.setattr(expenses_handler.time, "time", MagicMock(return_value=2.0))
 
     result = await expenses_handler.process_query(scenario.update, scenario.context)
@@ -420,6 +494,8 @@ async def test_query_builds_user_scoped_prompt_streams_progress_and_saves_final_
     scenario.bot.edit_message_text.assert_awaited_once_with("Looking up expenses", chat_id=202, message_id=88)
     scenario.bot.delete_message.assert_awaited_once_with(chat_id=202, message_id=88)
     assert scenario.context.user_data["expense_analysis"] == "You spent £12.50"
+    escape.assert_called_once_with("You spent £12.50")
+    assert scenario.bot.send_message.await_args_list[-1].args[1].startswith("escaped answer\n\nAsk me anything else")
 
 
 async def test_query_without_final_answer_sends_retry_and_cleans_progress(monkeypatch):
@@ -450,10 +526,11 @@ async def test_query_deduplicates_and_throttles_progress(monkeypatch):
     monkeypatch.setattr(expenses_handler, "analyser_agent", agent)
     monkeypatch.setattr(expenses_handler, "get_or_create_user", MagicMock(return_value="u"))
     monkeypatch.setattr(expenses_handler, "get_categories", MagicMock(return_value=[]))
-    monkeypatch.setattr(expenses_handler.time, "time", MagicMock(side_effect=[2.0, 2.2, 2.4, 4.0]))
+    clock = MagicMock(side_effect=[2.0, 2.2, 4.0])
+    monkeypatch.setattr(expenses_handler, "time", SimpleNamespace(time=clock))
     await expenses_handler.process_query(scenario.update, scenario.context)
-    # Duplicate "one" is suppressed and only two of four rapid progress chunks are eligible.
-    assert [call.args[0] for call in scenario.bot.edit_message_text.await_args_list] == ["one", "two"]
+    assert [call.args[0] for call in scenario.bot.edit_message_text.await_args_list] == ["one", "three"]
+    assert clock.call_count == 3
 
 
 @pytest.mark.parametrize("failure", ["edit", "delete", "final"])

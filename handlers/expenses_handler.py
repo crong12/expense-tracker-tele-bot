@@ -2,6 +2,7 @@ import re
 import os
 import time
 import logging
+from datetime import date
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from telegram.error import TimedOut, NetworkError
@@ -34,13 +35,30 @@ rule_reply_markup = InlineKeyboardMarkup(rule_keyboard)
 
 def _clear_expense_context(user_data):
     """Remove temporary confirmation/edit values without disturbing session data."""
-    for key in ('parsed_expense', 'is_editing', 'editing_expense_id'):
+    for key in ('parsed_expense', 'is_editing', 'editing_expense_id', 'category_corrected'):
         user_data.pop(key, None)
 
 
 def _clear_delete_context(user_data):
     for key in ('specific_or_all', 'expense_id'):
         user_data.pop(key, None)
+
+
+def _is_valid_expense(value):
+    """Accept only values that can be safely persisted and displayed."""
+    if not isinstance(value, dict):
+        return False
+    if not (isinstance(value.get('currency'), str) and re.fullmatch(r'[A-Z]{3}', value['currency'])):
+        return False
+    if not (isinstance(value.get('price'), (int, float)) and not isinstance(value['price'], bool) and value['price'] >= 0):
+        return False
+    if not all(isinstance(value.get(field), str) and value[field].strip() for field in ('category', 'description')):
+        return False
+    try:
+        date.fromisoformat(value.get('date', ''))
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -80,8 +98,7 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_FOR_EXPENSE
 
     json_response = str_to_json(response)
-    if not isinstance(json_response, dict) or not all(
-            field in json_response for field in ('currency', 'price', 'category', 'description', 'date')):
+    if not _is_valid_expense(json_response):
         await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
         return WAITING_FOR_EXPENSE
     context.user_data['parsed_expense'] = json_response
@@ -117,7 +134,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not user_id:
             user_id = get_or_create_user(telegram_id)
 
-        if isinstance(parsed_expense, dict):  # ensure valid dictionary
+        if _is_valid_expense(parsed_expense):
 
             # check if user is editing expense
             is_editing_expense = context.user_data.get("is_editing", False)
@@ -200,6 +217,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 _clear_expense_context(context.user_data)
 
         else:
+            _clear_expense_context(context.user_data)
             await context.bot.send_message(chat_id,"⚠️ There was an issue processing your request. Please try again.")
 
         logging.info("Transitioning to WAITING_FOR_EXPENSE")
@@ -215,6 +233,9 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_feedback = update.message.text
 
     original_details = context.user_data.get('parsed_expense', '')
+    if not _is_valid_expense(original_details):
+        await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
+        return AWAITING_REFINEMENT
     original_currency = original_details.get('currency', '') if isinstance(original_details, dict) else ''
     original_category = original_details.get('category', '') if isinstance(original_details, dict) else ''
 
@@ -224,8 +245,7 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
         return AWAITING_REFINEMENT
     json_refined_response = str_to_json(refined_response)
-    if not isinstance(json_refined_response, dict) or not all(
-            field in json_refined_response for field in ('currency', 'price', 'category', 'description', 'date')):
+    if not _is_valid_expense(json_refined_response):
         await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
         return AWAITING_REFINEMENT
 
@@ -294,8 +314,7 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
         return AWAITING_EDIT
     json_refined_response = str_to_json(refined_response)
-    if not isinstance(json_refined_response, dict) or not all(
-            field in json_refined_response for field in ('currency', 'price', 'category', 'description', 'date')):
+    if not _is_valid_expense(json_refined_response):
         await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
         return AWAITING_EDIT
 
@@ -453,7 +472,10 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # extract custom progress report message to be sent to user
                 message_to_send = chunk[1].get('custom', 'Processing...')
 
-                now = time.time()
+                if message_to_send != last_text:
+                    now = time.time()
+                else:
+                    now = last_sent_ts
                 if (message_to_send != last_text) and (now - last_sent_ts > 1.5):
                     try:
                         await context.bot.edit_message_text(

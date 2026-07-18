@@ -17,8 +17,11 @@ def ensure_focused_handlers_package():
         sys.modules["handlers"] = handlers_package
 
 
-def ensure_focused_handler_dependencies():
+def ensure_focused_handler_dependencies(reset=False):
     """Provide inert direct dependencies for isolated handler imports."""
+    if reset:
+        for name in ("handlers.expenses_handler", "services.gemini_svc", "services.expenses_svc", "services.sql_agent_svc"):
+            sys.modules.pop(name, None)
     if "config" not in sys.modules:
         config = types.ModuleType("config")
         (
