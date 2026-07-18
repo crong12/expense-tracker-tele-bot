@@ -8,6 +8,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 
+def _settings(config):
+    return config.Settings("123:ABC", "r1", "r2", "u", "p", "db", "localhost", "5432", "o", "l", "project")
+
+
 class TelegramApplicationFake:
     def __init__(self):
         self.bot = SimpleNamespace(send_message=AsyncMock())
@@ -60,6 +64,15 @@ def test_factory_is_import_safe_and_registers_webhook_routes(monkeypatch):
 
 
 @pytest.mark.smoke
+def test_explicit_settings_and_fake_never_call_production_loader(monkeypatch):
+    main = _main()
+    monkeypatch.setattr(main.config, "load_settings", lambda: pytest.fail("production settings requested"))
+    telegram = TelegramApplicationFake()
+    application = main.create_app(_settings(main.config), telegram)
+    assert application.state.telegram_application is telegram
+
+
+@pytest.mark.smoke
 def test_injected_application_receives_handlers_in_registration_order():
     main = _main()
 
@@ -70,7 +83,13 @@ def test_injected_application_receives_handlers_in_registration_order():
         "ConversationHandler", "MessageHandler", "CommandHandler", "CommandHandler"]
     conversation = telegram.handlers[0]
     assert conversation.name == "expense_conversation" and conversation.persistent is True
-    assert len(conversation.entry_points) == 2 and len(conversation.fallbacks) == 2
+    assert [handler.callback.__name__ for handler in conversation.entry_points] == ["start", "button_click"]
+    assert [handler.callback.__name__ for handler in conversation.fallbacks] == ["start", "quit_bot"]
+    assert [[handler.callback.__name__ for handler in conversation.states[state]] for state in range(9)] == [
+        ["process_insert", "process_insert", "button_click"], ["handle_confirmation"],
+        ["refine_details"], ["process_edit", "button_click"], ["process_delete"],
+        ["delete_expense_confirmation"], ["process_query", "button_click"],
+        ["export_expenses"], ["handle_category_rule"]]
     assert len(telegram.errors) == 1
 
 
@@ -80,12 +99,16 @@ async def test_webhook_processes_one_valid_update_and_suppresses_duplicates(monk
 
     telegram = TelegramApplicationFake()
     application = main.create_app(telegram_application=telegram)
-    update = SimpleNamespace(update_id=22, effective_user=None)
-    monkeypatch.setattr(main.Update, "de_json", lambda *_: update)
+    monkeypatch.setattr(main, "is_user_whitelisted", lambda _: True)
+    payload = {"update_id": 22, "message": {"message_id": 1, "date": 0,
+        "chat": {"id": 9, "type": "private"},
+        "from": {"id": 7, "is_bot": False, "first_name": "Test", "username": "allowed"},
+        "text": "/start"}}
     async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
-        assert (await client.post("/", json={"update_id": 22})).status_code == 200
-        assert (await client.post("/", json={"update_id": 22})).status_code == 200
-    telegram.process_update.assert_awaited_once_with(update)
+        assert (await client.post("/", json=payload)).status_code == 200
+        assert (await client.post("/", json=payload)).status_code == 200
+    assert telegram.process_update.await_count == 1
+    assert telegram.process_update.await_args.args[0].update_id == 22
 
 
 @pytest.mark.smoke
@@ -130,6 +153,35 @@ async def test_webhook_returns_500_for_unexpected_ingest_failure(monkeypatch):
 
 
 @pytest.mark.smoke
+async def test_failed_authorization_does_not_poison_duplicate_retry(monkeypatch):
+    main = _main()
+    telegram = TelegramApplicationFake()
+    application = main.create_app(telegram_application=telegram)
+    update = SimpleNamespace(update_id=41, effective_user=SimpleNamespace(username="allowed", id=7), effective_chat=SimpleNamespace(id=9))
+    monkeypatch.setattr(main.Update, "de_json", lambda *_: update)
+    outcomes = iter((RuntimeError("temporary"), True))
+    def whitelist(_):
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception): raise outcome
+        return outcome
+    monkeypatch.setattr(main, "is_user_whitelisted", whitelist)
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        assert (await client.post("/", json={"update_id": 41})).status_code == 500
+        assert (await client.post("/", json={"update_id": 41})).status_code == 200
+    telegram.process_update.assert_awaited_once()
+
+
+@pytest.mark.smoke
+async def test_runtime_decode_failure_is_500_not_client_error(monkeypatch):
+    main = _main()
+    application = main.create_app(telegram_application=TelegramApplicationFake())
+    monkeypatch.setattr(main.Update, "de_json", lambda *_: (_ for _ in ()).throw(RuntimeError("token secret")))
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        response = await client.post("/", json={"update_id": 42})
+    assert response.status_code == 500 and "token secret" not in response.text
+
+
+@pytest.mark.smoke
 async def test_lifespan_starts_stops_flushes_and_cancels_periodic_task():
     main = _main()
     telegram = TelegramApplicationFake()
@@ -140,6 +192,19 @@ async def test_lifespan_starts_stops_flushes_and_cancels_periodic_task():
         assert telegram.initialize.await_count == 1 and telegram.start.await_count == 1
         assert not task.done()
     assert task.done() and telegram.persistence.flush.await_count == 1 and telegram.stop.await_count == 1
+
+
+@pytest.mark.smoke
+async def test_final_flush_failure_still_stops_and_leaves_no_task():
+    main = _main()
+    telegram = TelegramApplicationFake()
+    telegram.persistence = PersistenceFake()
+    telegram.persistence.flush.side_effect = RuntimeError("flush failed")
+    application = main.create_app(telegram_application=telegram)
+    with pytest.raises(RuntimeError, match="flush failed"):
+        async with application.router.lifespan_context(application):
+            task = application.state.flush_task
+    assert task.done() and telegram.stop.await_count == 1
 
 
 @pytest.mark.smoke
