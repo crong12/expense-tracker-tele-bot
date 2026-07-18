@@ -1,10 +1,13 @@
+import asyncio
 import importlib.util
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from google.genai import errors as genai_errors
 from tenacity import wait_none
 
 
@@ -18,8 +21,8 @@ class FakeClient:
         ))
 
 
-@pytest.fixture
-def gemini_service():
+@contextmanager
+def isolated_gemini_service():
     previous_config = sys.modules.get("config")
     previous_service = sys.modules.get("services.gemini_svc")
     config = ModuleType("config")
@@ -51,6 +54,18 @@ def gemini_service():
             sys.modules["services.gemini_svc"] = previous_service
 
 
+@pytest.fixture
+def gemini_service():
+    with isolated_gemini_service() as service:
+        yield service
+
+
+def gemini_api_error(code):
+    response = SimpleNamespace(body_segments=[{"error": {"code": code}}])
+    error_type = genai_errors.ServerError if code >= 500 else genai_errors.ClientError
+    return error_type(code, response)
+
+
 @pytest.mark.asyncio
 async def test_text_returns_valid_json_response_unchanged(gemini_service):
     gemini_service.client = FakeClient([SimpleNamespace(text=' {"price": 12} ')])
@@ -77,9 +92,48 @@ def test_response_error_is_a_value_error(gemini_service):
     assert issubclass(gemini_service.GeminiResponseError, ValueError)
 
 
-def test_real_service_import_and_module_registry_are_isolated(gemini_service):
-    assert Path(gemini_service.__file__).resolve().name == "gemini_svc.py"
-    assert "comprehensive-test-suite" in str(Path(gemini_service.__file__).resolve())
+def test_isolated_import_restores_exact_prior_module_registry():
+    original_config = sys.modules.get("config")
+    original_service = sys.modules.get("services.gemini_svc")
+    prior_config = ModuleType("prior_config")
+    prior_service = ModuleType("prior_service")
+    sys.modules["config"] = prior_config
+    sys.modules["services.gemini_svc"] = prior_service
+    try:
+        with isolated_gemini_service() as service:
+            assert Path(service.__file__).resolve().name == "gemini_svc.py"
+            assert "comprehensive-test-suite" in str(Path(service.__file__).resolve())
+            assert sys.modules["config"] is not prior_config
+            assert sys.modules["services.gemini_svc"] is service
+        assert sys.modules["config"] is prior_config
+        assert sys.modules["services.gemini_svc"] is prior_service
+    finally:
+        if original_config is None:
+            sys.modules.pop("config", None)
+        else:
+            sys.modules["config"] = original_config
+        if original_service is None:
+            sys.modules.pop("services.gemini_svc", None)
+        else:
+            sys.modules["services.gemini_svc"] = original_service
+
+
+def test_isolated_import_restores_prior_module_absence():
+    original_config = sys.modules.get("config")
+    original_service = sys.modules.get("services.gemini_svc")
+    sys.modules.pop("config", None)
+    sys.modules.pop("services.gemini_svc", None)
+    try:
+        with isolated_gemini_service():
+            assert "config" in sys.modules
+            assert "services.gemini_svc" in sys.modules
+        assert "config" not in sys.modules
+        assert "services.gemini_svc" not in sys.modules
+    finally:
+        if original_config is not None:
+            sys.modules["config"] = original_config
+        if original_service is not None:
+            sys.modules["services.gemini_svc"] = original_service
 
 
 @pytest.mark.asyncio
@@ -114,9 +168,18 @@ async def test_text_uses_generic_category_instruction_without_categories(gemini_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("first", [RuntimeError("temporary")])
-async def test_text_retries_sdk_error_then_returns_success(gemini_service, first):
-    fake = FakeClient([first, SimpleNamespace(text='{}')])
+async def test_text_retries_transient_gemini_error_then_returns_success(gemini_service):
+    fake = FakeClient([gemini_api_error(429), SimpleNamespace(text='{}')])
+    gemini_service.client = fake
+
+    assert await gemini_service.process_expense_text("coffee") == "{}"
+    assert fake.aio.models.generate_content.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [TimeoutError("timed out"), ConnectionError("disconnected")])
+async def test_text_retries_transient_transport_error_then_returns_success(gemini_service, error):
+    fake = FakeClient([error, SimpleNamespace(text='{}')])
     gemini_service.client = fake
 
     assert await gemini_service.process_expense_text("coffee") == "{}"
@@ -125,15 +188,30 @@ async def test_text_retries_sdk_error_then_returns_success(gemini_service, first
 
 @pytest.mark.asyncio
 async def test_text_reraises_final_sdk_exception_after_three_attempts(gemini_service):
-    final_error = RuntimeError("down")
-    fake = FakeClient([RuntimeError("one"), RuntimeError("two"), final_error])
+    final_error = gemini_api_error(503)
+    fake = FakeClient([gemini_api_error(503), gemini_api_error(503), final_error])
     gemini_service.client = fake
 
-    with pytest.raises(RuntimeError) as caught:
+    with pytest.raises(genai_errors.ServerError) as caught:
         await gemini_service.process_expense_text("coffee")
 
     assert caught.value is final_error
     assert fake.aio.models.generate_content.await_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [
+    gemini_api_error(400), ValueError("invalid"), TypeError("bug"), RuntimeError("bug"),
+    asyncio.CancelledError(), KeyboardInterrupt(), SystemExit(),
+])
+async def test_non_transient_and_process_control_errors_are_not_retried(gemini_service, error):
+    fake = FakeClient([error])
+    gemini_service.client = fake
+
+    with pytest.raises(type(error)):
+        await gemini_service.process_expense_text("coffee")
+
+    assert fake.aio.models.generate_content.await_count == 1
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,7 @@
 import json
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 from config import PROJECT_ID, MODEL_NAME
@@ -47,8 +48,14 @@ def _validated_response_text(response) -> str:
     return text
 
 
-def _should_retry_gemini_error(error: BaseException) -> bool:
-    return not isinstance(error, (GeminiResponseError, OSError))
+def _should_retry_gemini_error(error: Exception) -> bool:
+    if isinstance(error, (TimeoutError, ConnectionError)):
+        return True
+    return (
+        isinstance(error, genai_errors.APIError)
+        and error.code is not None
+        and (error.code == 429 or error.code >= 500)
+    )
 
 
 gemini_retry = retry(
