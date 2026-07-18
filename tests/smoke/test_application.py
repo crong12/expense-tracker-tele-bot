@@ -2,6 +2,7 @@ import importlib
 import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -23,6 +24,11 @@ class TelegramApplicationFake:
 
     def add_error_handler(self, handler):
         self.errors.append(handler)
+
+
+class PersistenceFake:
+    def __init__(self):
+        self.flush = AsyncMock()
 
 
 def _main():
@@ -91,3 +97,73 @@ async def test_webhook_rejects_malformed_input_without_detail_leak(monkeypatch):
     async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
         response = await client.post("/", content=b"{}")
     assert response.status_code == 400 and "secret" not in response.text
+
+
+@pytest.mark.smoke
+@pytest.mark.parametrize(("username", "allowed", "expected_messages"), [
+    (None, True, 1), ("blocked", False, 1), ("allowed", True, 0),
+])
+async def test_webhook_enforces_username_and_whitelist_before_processing(monkeypatch, username, allowed, expected_messages):
+    main = _main()
+    telegram = TelegramApplicationFake()
+    application = main.create_app(telegram_application=telegram)
+    update = SimpleNamespace(update_id=31, effective_user=SimpleNamespace(username=username, id=7), effective_chat=SimpleNamespace(id=9))
+    monkeypatch.setattr(main.Update, "de_json", lambda *_: update)
+    monkeypatch.setattr(main, "is_user_whitelisted", lambda _: allowed)
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        response = await client.post("/", json={"update_id": 31})
+    assert response.status_code == 200
+    assert telegram.bot.send_message.await_count == expected_messages
+    assert telegram.process_update.await_count == (1 if allowed and username else 0)
+
+
+@pytest.mark.smoke
+async def test_webhook_returns_500_for_unexpected_ingest_failure(monkeypatch):
+    main = _main()
+    application = main.create_app(telegram_application=TelegramApplicationFake())
+    update = SimpleNamespace(update_id=40, effective_user=SimpleNamespace(username="allowed", id=7), effective_chat=SimpleNamespace(id=9))
+    monkeypatch.setattr(main.Update, "de_json", lambda *_: update)
+    monkeypatch.setattr(main, "is_user_whitelisted", lambda _: (_ for _ in ()).throw(RuntimeError("db unavailable")))
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        response = await client.post("/", json={"update_id": 40})
+    assert response.status_code == 500 and "db unavailable" not in response.text
+
+
+@pytest.mark.smoke
+async def test_lifespan_starts_stops_flushes_and_cancels_periodic_task():
+    main = _main()
+    telegram = TelegramApplicationFake()
+    telegram.persistence = PersistenceFake()
+    application = main.create_app(telegram_application=telegram)
+    async with application.router.lifespan_context(application):
+        task = application.state.flush_task
+        assert telegram.initialize.await_count == 1 and telegram.start.await_count == 1
+        assert not task.done()
+    assert task.done() and telegram.persistence.flush.await_count == 1 and telegram.stop.await_count == 1
+
+
+@pytest.mark.smoke
+async def test_expense_component_journey_normalizes_and_writes_once(monkeypatch):
+    _main()
+    from handlers import expenses_handler, misc_handlers
+    from tests.fakes.telegram import TelegramScenario
+
+    scenario = TelegramScenario(text="lunch 12.5")
+    user_id = "user-1"
+    monkeypatch.setattr(misc_handlers, "get_or_create_user", lambda _: user_id)
+    monkeypatch.setattr(expenses_handler, "get_or_create_user", lambda _: user_id)
+    monkeypatch.setattr(expenses_handler, "get_user_preferred_currency", lambda _: "GBP")
+    monkeypatch.setattr(expenses_handler, "get_categories", lambda _: [])
+    monkeypatch.setattr(expenses_handler, "get_category_rules", lambda _: [])
+    monkeypatch.setattr(expenses_handler, "process_expense_text", AsyncMock(return_value='{"currency":"GBP","price":12.5,"category":"Dining","description":"Lunch","date":"2026-07-18"}'))
+    insert = MagicMock(return_value=88)
+    monkeypatch.setattr(expenses_handler, "insert_expense", insert)
+    monkeypatch.setattr(expenses_handler, "set_user_preferred_currency", MagicMock())
+
+    assert await misc_handlers.start(scenario.update, scenario.context) is None
+    scenario.callback_query.data = "insert_expense"
+    assert await misc_handlers.button_click(scenario.update, scenario.context) == 0
+    assert await expenses_handler.process_insert(scenario.update, scenario.context) == 1
+    scenario.callback_query.data = "confirmation"
+    assert await expenses_handler.handle_confirmation(scenario.update, scenario.context) == 0
+    insert.assert_called_once_with(user_id=user_id, price=12.5, category="Dining", description="Lunch", date="2026-07-18", currency="GBP")

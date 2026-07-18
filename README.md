@@ -2,9 +2,19 @@
 
 ## Tests
 
-Install test dependencies: `python -m pip install -r requirements-test.txt`. Run fast tests with `python -m pytest -m "not integration and not live" -q`, smoke tests with `python -m pytest -m smoke -q`, integration tests with `python -m pytest -m integration -q`, or all required non-live tests with `python -m pytest -m "not live" -q`. Measure coverage with `python -m pytest -m "not live" --cov --cov-branch --cov-report=term-missing -q`.
+Install test dependencies with `python -m pip install -r requirements-test.txt`.
 
-For integration tests, start disposable PostgreSQL 16: `docker run --rm -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=expense_test postgres:16`, then set `TEST_DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/expense_test`. Markers are `unit`, `smoke`, `integration`, and opt-in `live`. Network access is denied by default; live tests are excluded from required CI. Telegram handler/component tests use shared fakes in `tests/fakes/telegram.py`.
+| Purpose | Command |
+| --- | --- |
+| Fast (no database/live tests) | `python -m pytest -m "not integration and not live" -q` |
+| Smoke application checks | `python -m pytest -m smoke -q` |
+| PostgreSQL integration | `python -m pytest -m integration -q` |
+| Full required non-live suite | `python -m pytest -m "not live" -q` |
+| Branch coverage | `python -m pytest -m "not live" --cov --cov-branch --cov-report=term-missing -q` |
+
+Start disposable PostgreSQL 16 with `docker run --rm -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=expense_test postgres:16`, then set `TEST_DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/expense_test` (and `DATABASE_URL` to the same value when running the whole suite). PowerShell example: `$env:TEST_DATABASE_URL='postgresql+psycopg2://postgres:postgres@localhost:5432/expense_test'`.
+
+Markers are `unit` (isolated behavior), `smoke` (critical wiring), `integration` (real PostgreSQL), and `live` (explicitly permitted external systems). Sockets are denied by default, so tests must use injected boundaries rather than vendor services. Shared Telegram doubles live in `tests/fakes/telegram.py`. Live tests are optional and excluded from all required CI jobs.
 
 
 <!-- PROJECT HEADER -->

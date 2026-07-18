@@ -3,7 +3,7 @@ on: [push, pull_request]
 permissions:
   contents: read
 env:
-  TELE_BOT_TOKEN: test-token
+  TELE_BOT_TOKEN: "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
   REGION: test-region
   REGION2: test-region-2
   DB_USER: test-user
