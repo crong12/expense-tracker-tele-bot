@@ -32,6 +32,17 @@ rule_keyboard = [
 rule_reply_markup = InlineKeyboardMarkup(rule_keyboard)
 
 
+def _clear_expense_context(user_data):
+    """Remove temporary confirmation/edit values without disturbing session data."""
+    for key in ('parsed_expense', 'is_editing', 'editing_expense_id'):
+        user_data.pop(key, None)
+
+
+def _clear_delete_context(user_data):
+    for key in ('specific_or_all', 'expense_id'):
+        user_data.pop(key, None)
+
+
 async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles expense text processing"""
     message = update.message
@@ -114,6 +125,10 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             # update expense
             if is_editing_expense:
                 expense_id_for_edit = context.user_data.get("editing_expense_id")
+                if not expense_id_for_edit:
+                    _clear_expense_context(context.user_data)
+                    await context.bot.send_message(chat_id, "⚠️ There was an issue processing your request. Please try again.")
+                    return WAITING_FOR_EXPENSE
                 expense_id = update_expense(
                     expense_id=expense_id_for_edit,
                     price=parsed_expense['price'],
@@ -122,7 +137,11 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     date=parsed_expense['date'],
                     currency=parsed_expense['currency']
                 )
-                context.user_data['is_editing'] = False
+                if not expense_id:
+                    _clear_expense_context(context.user_data)
+                    await context.bot.send_message(chat_id, "⚠️ There was an issue processing your request. Please try again.")
+                    return WAITING_FOR_EXPENSE
+                _clear_expense_context(context.user_data)
                 await context.bot.send_message(chat_id,
                                             "<b>✅ Your expense has been updated successfully!</b>\n"
                                             f"📈 <b>Currency:</b> {parsed_expense['currency']}\n"
@@ -145,6 +164,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     currency=parsed_expense['currency']
                 )
                 if not expense_id:
+                    _clear_expense_context(context.user_data)
                     await context.bot.send_message(chat_id, "⚠️ There was an issue processing your request. Please try again.")
                     return WAITING_FOR_EXPENSE
                 # update preferred currency to match the confirmed expense
@@ -173,9 +193,11 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                         reply_markup=rule_reply_markup,
                         parse_mode='HTML'
                     )
+                    _clear_expense_context(context.user_data)
                     return AWAITING_CATEGORY_RULE
 
                 await context.bot.send_message(chat_id, "Would you like to add another expense? Type it below or send /start to go back to the main menu.")
+                _clear_expense_context(context.user_data)
 
         else:
             await context.bot.send_message(chat_id,"⚠️ There was an issue processing your request. Please try again.")
@@ -196,7 +218,11 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     original_currency = original_details.get('currency', '') if isinstance(original_details, dict) else ''
     original_category = original_details.get('category', '') if isinstance(original_details, dict) else ''
 
-    refined_response = await refine_expense_details(original_details, user_feedback)
+    try:
+        refined_response = await refine_expense_details(original_details, user_feedback)
+    except Exception:  # handler boundary: leave the last valid details intact
+        await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
+        return AWAITING_REFINEMENT
     json_refined_response = str_to_json(refined_response)
     if not isinstance(json_refined_response, dict) or not all(
             field in json_refined_response for field in ('currency', 'price', 'category', 'description', 'date')):
@@ -262,8 +288,16 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     original_currency_match = re.search(r"Currency:\s*(\w+)", original_text)
     original_currency = original_currency_match.group(1) if original_currency_match else ''
 
-    refined_response = await refine_expense_details(original_text, user_feedback)
+    try:
+        refined_response = await refine_expense_details(original_text, user_feedback)
+    except Exception:
+        await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
+        return AWAITING_EDIT
     json_refined_response = str_to_json(refined_response)
+    if not isinstance(json_refined_response, dict) or not all(
+            field in json_refined_response for field in ('currency', 'price', 'category', 'description', 'date')):
+        await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
+        return AWAITING_EDIT
 
     # Check if currency was changed during editing
     refined_currency = json_refined_response.get('currency', '')
@@ -369,6 +403,7 @@ async def delete_expense_confirmation(update: Update, context: ContextTypes.DEFA
     else:  # If the user cancels
         await query.message.edit_text("🚫 Expense deletion canceled.")
 
+    _clear_delete_context(context.user_data)
     return WAITING_FOR_EXPENSE
 
 
