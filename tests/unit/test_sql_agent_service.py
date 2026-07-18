@@ -1,4 +1,5 @@
 import asyncio
+import importlib.machinery
 import importlib.util
 import os
 import sys
@@ -30,11 +31,11 @@ def isolated_sql_agent_service(session_factory=lambda: None):
     sys.modules.update({"config": config, "database": database, "services": services})
     sys.modules.pop("services.sql_agent_svc", None)
     os.environ.pop("OPENAI_API_KEY", None)
-    spec = importlib.util.spec_from_file_location("services.sql_agent_svc", SOURCE)
-    service = importlib.util.module_from_spec(spec)
-    sys.modules["services.sql_agent_svc"] = service
-    spec.loader.exec_module(service)
     try:
+        spec = importlib.util.spec_from_file_location("services.sql_agent_svc", SOURCE)
+        service = importlib.util.module_from_spec(spec)
+        sys.modules["services.sql_agent_svc"] = service
+        spec.loader.exec_module(service)
         yield service
     finally:
         for name, module in prior.items():
@@ -98,6 +99,24 @@ def test_read_only_validator_rejects_nested_or_escape_ambiguity_and_other_side_e
     assert sql_agent._is_read_only_query(sql) is False
 
 
+@pytest.mark.parametrize("sql", [
+    r"SELECT 'ordinary\backslash'",
+    "SELECT pg_try_advisory_lock(1)",
+    "SELECT pg_try_advisory_xact_lock(1)",
+    "SELECT set_config('work_mem', '1MB', false)",
+    "SELECT lo_import('/tmp/input')",
+    "SELECT lo_export(1, '/tmp/output')",
+    "SELECT dblink_exec('connection', 'statement')",
+    'SELECT "pg_notify"(\'channel\', \'payload\')',
+])
+def test_read_only_validator_rejects_ambiguous_strings_and_state_changing_calls(sql_agent, sql):
+    assert sql_agent._is_read_only_query(sql) is False
+
+
+def test_read_only_validator_allows_well_formed_escape_string(sql_agent):
+    assert sql_agent._is_read_only_query(r"SELECT E'escaped\\backslash'") is True
+
+
 def test_rejected_query_never_constructs_a_session(sql_agent):
     calls = 0
     def fail_session():
@@ -118,8 +137,11 @@ def test_query_serializes_mapping_rows_and_closes_session(sql_agent):
     session.rollback = lambda: rolled_back.append(True)
     sql_agent.SessionLocal = lambda: session
     assert query(sql_agent, "SELECT amount, day FROM expenses") == '[{"amount": "12.50", "day": "2026-07-18"}]'
-    assert isinstance(executed[0], TextClause)
-    assert str(executed[0]) == "SELECT amount, day FROM expenses"
+    assert all(isinstance(statement, TextClause) for statement in executed)
+    assert [str(statement) for statement in executed] == [
+        "SET TRANSACTION READ ONLY",
+        "SELECT amount, day FROM expenses",
+    ]
     assert closed == [True] and not rolled_back
 
 
@@ -162,6 +184,22 @@ def test_session_construction_error_returns_database_error(sql_agent):
     assert query(sql_agent, "SELECT 1") == "Database error: unavailable"
 
 
+def test_read_only_transaction_setup_failure_rolls_back_and_closes(sql_agent):
+    calls, rolled_back, closed = [], [], []
+    def execute(statement):
+        calls.append(str(statement))
+        raise RuntimeError("read-only setup failed")
+    session = SimpleNamespace(
+        execute=execute,
+        rollback=lambda: rolled_back.append(True),
+        close=lambda: closed.append(True),
+    )
+    sql_agent.SessionLocal = lambda: session
+    assert query(sql_agent, "SELECT 1") == "Database error: read-only setup failed"
+    assert calls == ["SET TRANSACTION READ ONLY"]
+    assert rolled_back == [True] and closed == [True]
+
+
 def test_isolated_import_uses_real_source_and_restores_exact_registry_and_environment():
     prior = {name: sys.modules.get(name) for name in ("config", "database", "services", "services.sql_agent_svc")}
     had_key, prior_key = "OPENAI_API_KEY" in os.environ, os.environ.get("OPENAI_API_KEY")
@@ -182,11 +220,42 @@ def test_isolated_import_uses_real_source_and_restores_exact_registry_and_enviro
         else: os.environ.pop("OPENAI_API_KEY", None)
 
 
+def test_isolated_import_restores_registry_and_environment_when_loading_fails(monkeypatch):
+    names = ("config", "database", "services", "services.sql_agent_svc")
+    prior = {name: sys.modules.get(name) for name in names}
+    had_key, prior_key = "OPENAI_API_KEY" in os.environ, os.environ.get("OPENAI_API_KEY")
+    sentinels = {name: ModuleType("sentinel_" + name.replace(".", "_")) for name in names}
+    sys.modules.update(sentinels)
+    os.environ["OPENAI_API_KEY"] = "prior-failure-key"
+    def fail_load(self, module):
+        raise RuntimeError("forced import failure")
+    monkeypatch.setattr(importlib.machinery.SourceFileLoader, "exec_module", fail_load)
+    try:
+        with pytest.raises(RuntimeError, match="forced import failure"):
+            with isolated_sql_agent_service():
+                pass
+        assert all(sys.modules[name] is sentinels[name] for name in names)
+        assert os.environ["OPENAI_API_KEY"] == "prior-failure-key"
+    finally:
+        for name, module in prior.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+        if had_key:
+            os.environ["OPENAI_API_KEY"] = prior_key
+        else:
+            os.environ.pop("OPENAI_API_KEY", None)
+
+
 @pytest.mark.parametrize(("messages", "expected"), [
     ([], "__end__"), ([SimpleNamespace()], "__end__"), ([SimpleNamespace(tool_calls=[])], "__end__"),
     ([SimpleNamespace(tool_calls=[{"name": "SubmitFinalAnswer"}])], "__end__"),
     ([SimpleNamespace(tool_calls=[{"name": "unknown"}])], "__end__"),
     ([SimpleNamespace(tool_calls=[{}])], "__end__"), ([SimpleNamespace(tool_calls="bad")], "__end__"),
+    ([SimpleNamespace(tool_calls=[{}, {"name": "db_query_tool"}])], "tools"),
+    ([SimpleNamespace(tool_calls=[None, {"name": "SubmitFinalAnswer"}, {"name": "db_query_tool"}])], "__end__"),
+    ([SimpleNamespace(tool_calls=[{"name": "unknown"}, {"name": "db_query_tool"}])], "__end__"),
     ([SimpleNamespace(tool_calls=[{"name": "db_query_tool"}, {"name": "unknown"}])], "tools"),
 ])
 def test_routing_handles_missing_malformed_and_first_tool_call(sql_agent, messages, expected):

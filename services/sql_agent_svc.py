@@ -69,10 +69,19 @@ def _mask_sql_literals_and_comments(query: str) -> str:
             index = end
         elif query[index] in "'\"":
             quote = query[index]
+            prefix = index - 1
+            escape_string = (
+                quote == "'"
+                and prefix >= 0
+                and query[prefix] in "Ee"
+                and (prefix == 0 or not (query[prefix - 1].isalnum() or query[prefix - 1] == "_"))
+            )
             end = index + 1
             closed = False
             while end < length:
                 if quote == "'" and query[end] == "\\":
+                    if not escape_string or end + 1 >= length:
+                        return ""
                     end += 2
                     continue
                 if query[end] == quote:
@@ -86,6 +95,12 @@ def _mask_sql_literals_and_comments(query: str) -> str:
             if not closed:
                 return ""
             erase(index, end)
+            if quote == "\"":
+                next_token = end
+                while next_token < length and query[next_token].isspace():
+                    next_token += 1
+                if next_token < length and query[next_token] == "(":
+                    return ""
             index = end
         elif query[index] == "$":
             delimiter = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", query[index:])
@@ -146,7 +161,11 @@ def _is_read_only_query(query: str) -> bool:
         return False
     if re.search(r"\bFOR\s+(?:UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b|\bSELECT\b[\s\S]*?\bINTO\b", statement, re.IGNORECASE):
         return False
-    side_effect_functions = "nextval|setval|pg_sleep|pg_terminate_backend|pg_cancel_backend|pg_advisory_[A-Za-z0-9_]*|pg_notify"
+    side_effect_functions = (
+        "nextval|setval|set_config|pg_sleep|pg_terminate_backend|pg_cancel_backend|"
+        "pg_advisory_[A-Za-z0-9_]*|pg_try_advisory_[A-Za-z0-9_]*|pg_notify|"
+        "lo_import|lo_export|dblink_exec"
+    )
     return not bool(re.search(rf"\b(?:{side_effect_functions})\s*\(", statement, re.IGNORECASE))
 
 @tool
@@ -162,6 +181,7 @@ def db_query_tool(query: str) -> str:
     session = None
     try:
         session = SessionLocal()
+        session.execute(text("SET TRANSACTION READ ONLY"))
         result = session.execute(text(query))
         results_as_dict = result.mappings().all()
 
@@ -300,9 +320,14 @@ def route_after_analyst(state: State) -> Literal["tools", "__end__"]:
     if not isinstance(messages, list) or not messages:
         return "__end__"
     tool_calls = getattr(messages[-1], "tool_calls", None)
-    if isinstance(tool_calls, list) and tool_calls and isinstance(tool_calls[0], dict):
-        if tool_calls[0].get("name") == "db_query_tool":
-            return "tools"
+    if isinstance(tool_calls, list):
+        for tool_call in tool_calls:
+            if not isinstance(tool_call, dict):
+                continue
+            name = tool_call.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            return "tools" if name == "db_query_tool" else "__end__"
     return "__end__"
 
 #---------------------------------------------------------------------------------------------------
