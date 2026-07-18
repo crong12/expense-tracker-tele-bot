@@ -47,6 +47,18 @@ async def reject_unexpected_messages(update: Update, context: ContextTypes.DEFAU
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """handle button response from start menu"""
     query = update.callback_query
+    known_callbacks = {
+        "insert_expense",
+        "edit_expense",
+        "export_expenses",
+        "delete_expenses",
+        "analyse_expenses",
+        "quit",
+    }
+    if query.data not in known_callbacks:
+        await query.answer("That menu option is no longer valid.", show_alert=True)
+        return ConversationHandler.END
+
     await query.answer()
 
     if query.data == "insert_expense":
