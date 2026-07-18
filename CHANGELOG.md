@@ -2,10 +2,20 @@
 
 All notable changes to the bot will be documented here.
 
-## Unreleased
+## 1.6.0 &ndash; 2026-07-18
 
 ### Added
 - Custom date-range expense exports using an in-chat calendar. Start and end dates are both included, and future dates cannot be selected.
+- Comprehensive unit, integration, smoke, and PostgreSQL test coverage with reusable Telegram fakes and offline network guards.
+- GitHub Actions test jobs for fast checks, PostgreSQL integration tests, combined coverage enforcement, and Docker builds.
+
+### Changed
+- Refactored application configuration, service clients, and app construction for deterministic dependency injection and test isolation.
+- Enforced authenticated tenant boundaries for expense analytics queries.
+
+### Fixed
+- Made Telegram update processing concurrency-safe and expense insertion idempotent across retries.
+- Scoped expense matching and editing to the authenticated user.
 
 <br/>
 
