@@ -5,9 +5,14 @@ from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableLambda, RunnableWithFallbacks
 from langgraph.prebuilt import ToolNode
 
-def title_case(s: str) -> str:
+
+def to_title_case(s: str) -> str:
     """helper function to format strings to title case"""
     return ' '.join(word[0].upper() + word[1:].lower() for word in s.split())
+
+
+title_case = to_title_case
+
 
 def str_to_json(text: str) -> dict:
     """
@@ -29,6 +34,7 @@ def str_to_json(text: str) -> dict:
     except json.JSONDecodeError:
         return "error: Failed to parse response as JSON"
 
+
 def get_current_date():
     """Get current date for LLM to infer actual expense date from relative date provided by user
     Returns:
@@ -37,6 +43,7 @@ def get_current_date():
     """
     now = datetime.today()
     return now.strftime('%Y-%m-%d'), now.strftime('%A')
+
 
 # define util functions
 def create_tool_node_with_fallback(tools: list) -> RunnableWithFallbacks[Any, dict]:

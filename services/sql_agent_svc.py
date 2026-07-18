@@ -1,6 +1,9 @@
 import json
 import os
-from typing import Annotated, Literal
+import re
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Annotated, Any, Literal
 from sqlalchemy.sql import text
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,17 +15,25 @@ from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.types import StreamWriter
 from database import SessionLocal
 from utils import create_tool_node_with_fallback, get_current_date
+import config
 from config import OPENAI_API_KEY
 
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 # Single model for both query generation and answer formulation
-llm = ChatOpenAI(
-    model="gpt-5.4-mini",
-    reasoning_effort="low",
-    use_responses_api=True,
-    max_retries=3
-)
+llm = None
+_managed_llms = {}
+
+
+def _llm():
+    """Defer OpenAI construction until the analyst receives work."""
+    global llm
+    if llm is not None:
+        return llm
+    api_key = config.get_settings().openai_api_key if hasattr(config, "get_settings") else config.OPENAI_API_KEY
+    if api_key not in _managed_llms:
+        _managed_llms[api_key] = ChatOpenAI(model="gpt-5.4-mini", reasoning_effort="low", use_responses_api=True, max_retries=3, api_key=api_key)
+    return _managed_llms[api_key]
 
 class State(TypedDict):
     """Define the state for the agent"""
@@ -31,16 +42,212 @@ class State(TypedDict):
 #---------------------------------------------------------------------------------------------------
 # Tools #
 
+_REJECTED_QUERY = "Query rejected: only a single read-only SELECT statement is allowed."
+_NO_TENANT_CONTEXT = "Query rejected: no authenticated tenant context."
+_REJECTED_TENANT_QUERY = "Query rejected: query may only access the tenant-scoped expenses relation."
+_tenant_user_id = ContextVar("expense_tracker_tenant_user_id", default=None)
+_SAFE_ANALYTICS_FUNCTIONS = frozenset({
+    "count", "sum", "avg", "min", "max", "round", "abs", "coalesce", "nullif",
+    "date_trunc", "extract", "lower", "upper", "length",
+})
+_NON_FUNCTION_PAREN_TOKENS = frozenset({"in"})
+
+
+@contextmanager
+def tenant_context(user_id):
+    """Bind a verified user id for database tools during one analytics request."""
+    token = _tenant_user_id.set(user_id)
+    try:
+        yield
+    finally:
+        _tenant_user_id.reset(token)
+
+
+def _uses_only_expenses_relation(query: str) -> bool:
+    """Allow only an unqualified expenses relation; the injected CTE scopes it."""
+    masked = _mask_sql_literals_and_comments(query)
+    if not masked or re.match(r"^\s*WITH\b", masked, flags=re.IGNORECASE):
+        return False
+    identifier = r'(?:[A-Za-z_][A-Za-z0-9_]*|"(?:[^"]|"")+")'
+    if re.search(rf"\bFROM\s+{identifier}(?:\s*\.\s*{identifier})?(?:\s+(?:AS\s+)?[A-Za-z_][A-Za-z0-9_]*)?\s*,", masked, flags=re.IGNORECASE):
+        return False
+    relations = re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)?)", masked, flags=re.IGNORECASE)
+    if not relations:
+        return bool(re.match(r"^\s*SELECT\s+(?:\d+|NULL|TRUE|FALSE)(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?(?:\s+WHERE\s+(?:TRUE|FALSE))?\s*$", masked, flags=re.IGNORECASE))
+    return all(relation.lower() == "expenses" for relation in relations)
+
+
+def _uses_only_safe_analytics_functions(query: str) -> bool:
+    """Allow a small, explicit set of pure analytic functions at the tenant boundary."""
+    masked = _mask_sql_literals_and_comments(query)
+    if not masked:
+        return False
+    if re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*[A-Za-z_][A-Za-z0-9_]*\s*\(", masked):
+        return False
+    function_names = re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", masked)
+    return all(name.lower() in _SAFE_ANALYTICS_FUNCTIONS | _NON_FUNCTION_PAREN_TOKENS for name in function_names)
+
+
+def _tenant_scoped_query(query: str) -> str:
+    """Shadow the only permitted table with an authenticated, parameterized CTE."""
+    return "WITH expenses AS (SELECT id, user_id, price, category, description, date, currency FROM expenses WHERE user_id = :tenant_user_id) " + query
+
+
+def _mask_sql_literals_and_comments(query: str) -> str:
+    """Replace SQL literals/comments with whitespace while preserving SQL structure."""
+    masked = list(query)
+    index = 0
+    length = len(query)
+
+    def erase(start: int, end: int) -> None:
+        for position in range(start, end):
+            if masked[position] != "\n":
+                masked[position] = " "
+
+    while index < length:
+        if query.startswith("--", index):
+            end = query.find("\n", index)
+            erase(index, length if end == -1 else end)
+            index = length if end == -1 else end
+        elif query.startswith("/*", index):
+            end = index + 2
+            depth = 1
+            while end < length and depth:
+                if query.startswith("/*", end):
+                    depth += 1
+                    end += 2
+                elif query.startswith("*/", end):
+                    depth -= 1
+                    end += 2
+                else:
+                    end += 1
+            if depth:
+                return ""
+            erase(index, end)
+            index = end
+        elif query[index] in "'\"":
+            quote = query[index]
+            prefix = index - 1
+            escape_string = (
+                quote == "'"
+                and prefix >= 0
+                and query[prefix] in "Ee"
+                and (prefix == 0 or not (query[prefix - 1].isalnum() or query[prefix - 1] == "_"))
+            )
+            end = index + 1
+            closed = False
+            while end < length:
+                if quote == "'" and query[end] == "\\":
+                    if not escape_string or end + 1 >= length:
+                        return ""
+                    end += 2
+                    continue
+                if query[end] == quote:
+                    if end + 1 < length and query[end + 1] == quote:
+                        end += 2
+                        continue
+                    end += 1
+                    closed = True
+                    break
+                end += 1
+            if not closed:
+                return ""
+            erase(index, end)
+            if quote == "\"":
+                next_token = end
+                while next_token < length and query[next_token].isspace():
+                    next_token += 1
+                if next_token < length and query[next_token] == "(":
+                    return ""
+            index = end
+        elif query[index] == "$":
+            delimiter = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", query[index:])
+            if delimiter:
+                token = delimiter.group(0)
+                end = query.find(token, index + len(token))
+                if end == -1:
+                    return ""
+                end += len(token)
+                erase(index, end)
+                index = end
+            else:
+                index += 1
+        else:
+            index += 1
+    return "".join(masked)
+
+
+def _with_resolves_to_select(statement: str) -> bool:
+    """Require a CTE's outer query form to be SELECT, not VALUES or TABLE."""
+    depth = 0
+    saw_cte_close = False
+    for match in re.finditer(r"\(|\)|[A-Za-z_][A-Za-z0-9_]*", statement):
+        token = match.group(0).upper()
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            if depth == 0:
+                return False
+            depth -= 1
+            saw_cte_close = saw_cte_close or depth == 0
+        elif saw_cte_close and depth == 0 and token in {"SELECT", "VALUES", "TABLE"}:
+            return token == "SELECT"
+    return False
+
+
+def _is_read_only_query(query: str) -> bool:
+    """Conservatively allow one non-locking SELECT statement only."""
+    if not isinstance(query, str) or not query.strip():
+        return False
+    masked = _mask_sql_literals_and_comments(query)
+    statement = masked.strip()
+    if statement.endswith(";"):
+        statement = statement[:-1].rstrip()
+    if not statement or ";" in statement:
+        return False
+    opening = re.match(r"^(SELECT|WITH)\b", statement, flags=re.IGNORECASE)
+    if not opening:
+        return False
+    if opening.group(1).upper() == "WITH" and not _with_resolves_to_select(statement):
+        return False
+    forbidden = (
+        "INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE",
+        "COPY", "CALL", "DO", "SET", "RESET", "GRANT", "REVOKE", "BEGIN", "COMMIT",
+        "ROLLBACK", "VACUUM", "ANALYZE", "LOCK",
+    )
+    if any(re.search(rf"\b{word}\b", statement, flags=re.IGNORECASE) for word in forbidden):
+        return False
+    if re.search(r"\bFOR\s+(?:UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b|\bSELECT\b[\s\S]*?\bINTO\b", statement, re.IGNORECASE):
+        return False
+    side_effect_functions = (
+        "nextval|setval|set_config|pg_sleep|pg_terminate_backend|pg_cancel_backend|"
+        "pg_advisory_[A-Za-z0-9_]*|pg_try_advisory_[A-Za-z0-9_]*|pg_notify|"
+        "lo_import|lo_export|dblink_exec"
+    )
+    return not bool(re.search(rf"\b(?:{side_effect_functions})\s*\(", statement, re.IGNORECASE))
+
 @tool
-def db_query_tool(query: str) -> str:
+def db_query_tool(query: Any) -> str:
     """
     Execute a SQL query against the database and get back the result.
     If the query is not correct, an error message will be returned.
     If an error is returned, rewrite the query, check the query, and try again.
     """
-    session = SessionLocal()
+    if not _is_read_only_query(query):
+        return _REJECTED_QUERY
+    user_id = _tenant_user_id.get()
+    if user_id is None:
+        return _NO_TENANT_CONTEXT
+    if not _uses_only_expenses_relation(query):
+        return _REJECTED_TENANT_QUERY
+    if not _uses_only_safe_analytics_functions(query):
+        return _REJECTED_TENANT_QUERY
+
+    session = None
     try:
-        result = session.execute(text(query))
+        session = SessionLocal()
+        session.connection(execution_options={"postgresql_readonly": True})
+        result = session.execute(text(_tenant_scoped_query(query)), {"tenant_user_id": user_id})
         results_as_dict = result.mappings().all()
 
         if results_as_dict:
@@ -48,12 +255,20 @@ def db_query_tool(query: str) -> str:
 
         return "Query executed successfully, but no results were returned."
     except Exception as e:
-        session.rollback()
+        if session is not None:
+            try:
+                session.rollback()
+            except Exception as cleanup_error:
+                print(f"Database cleanup error: {cleanup_error}")
         error_message = f"Database error: {e}"
         print(error_message)
         return error_message
     finally:
-        session.close()
+        if session is not None:
+            try:
+                session.close()
+            except Exception as cleanup_error:
+                print(f"Database cleanup error: {cleanup_error}")
 
 class SubmitFinalAnswer(BaseModel):
     """Submit the final answer to the user based on the query results."""
@@ -99,8 +314,8 @@ Query rules:
 - Output the query as a single line — no newlines or formatting.
 - Use single quotes (') for string literals, NEVER double quotes (").
 - Do NOT use escape characters like backslashes before quotes.
-- Only query rows belonging to the user_id provided in the context.
-- Use user_id only in WHERE for filtering; do not SELECT user_id or id unless strictly required.
+- Tenant scoping is automatic: query only the unqualified `expenses` relation and never include user_id filters.
+- Use only these analytics functions when needed: count, sum, avg, min, max, round, abs, coalesce, nullif, date_trunc, extract, lower, upper, length.
 - Use only the list of categories provided in context. Do not make up categories.
 - Use ILIKE for case-insensitive matching.
 - Always query for currency.
@@ -146,14 +361,18 @@ async def analyst_node(state: State, writer: StreamWriter):
         writer({"custom": "📝 Analysing query..."})
 
     prompt = analyst_prompt.partial(today=today, day=day)
-    chain = prompt | llm.bind_tools([db_query_tool, SubmitFinalAnswer])
+    chain = prompt | _llm().bind_tools([db_query_tool, SubmitFinalAnswer])
     message = await chain.ainvoke(state)
 
     # Strip trailing newline from final answer if present
-    if message.tool_calls and message.tool_calls[0]["name"] == "SubmitFinalAnswer":
-        message.tool_calls[0]["args"]["final_answer"] = (
-            message.tool_calls[0]["args"]["final_answer"].rstrip('\n')
-        )
+    tool_calls = getattr(message, "tool_calls", None)
+    if isinstance(tool_calls, list) and tool_calls and isinstance(tool_calls[0], dict):
+        first_call = tool_calls[0]
+        args = first_call.get("args")
+        if first_call.get("name") == "SubmitFinalAnswer" and isinstance(args, dict):
+            final_answer = args.get("final_answer")
+            if isinstance(final_answer, str):
+                args["final_answer"] = final_answer.rstrip('\n')
 
     return {"messages": [message]}
 
@@ -162,11 +381,18 @@ async def analyst_node(state: State, writer: StreamWriter):
 
 def route_after_analyst(state: State) -> Literal["tools", "__end__"]:
     """Route to tools if db_query_tool was called, otherwise end (SubmitFinalAnswer or plain text)."""
-    last_message = state["messages"][-1]
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        if last_message.tool_calls[0]["name"] == "SubmitFinalAnswer":
-            return "__end__"
-        return "tools"
+    messages = state.get("messages") if isinstance(state, dict) else None
+    if not isinstance(messages, list) or not messages:
+        return "__end__"
+    tool_calls = getattr(messages[-1], "tool_calls", None)
+    if isinstance(tool_calls, list):
+        for tool_call in tool_calls:
+            if not isinstance(tool_call, dict):
+                continue
+            name = tool_call.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            return "tools" if name == "db_query_tool" else "__end__"
     return "__end__"
 
 #---------------------------------------------------------------------------------------------------

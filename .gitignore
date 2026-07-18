@@ -43,4 +43,11 @@ notes/
 # ignore local planning and agent workflow artifacts
 .planning/
 .superpowers/
+.worktrees/
 docs/superpowers/
+
+# ignore generated test artifacts
+.coverage
+.pytest_cache/
+htmlcov/
+coverage.xml

@@ -1,14 +1,26 @@
+import json
+
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
-from tenacity import retry, wait_random_exponential
-from config import PROJECT_ID, MODEL_NAME
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
+import config
+from config import MODEL_NAME
 from utils import get_current_date
 
-client = genai.Client(
-    vertexai=True,
-    project=PROJECT_ID,
-    location='global',
-)
+client = None
+_managed_clients = {}
+
+
+def _client():
+    """Create credentials only when a Gemini request is actually made."""
+    global client
+    if client is not None:
+        return client
+    project = config.get_settings().project_id if hasattr(config, "get_settings") else config.PROJECT_ID
+    if project not in _managed_clients:
+        _managed_clients[project] = genai.Client(vertexai=True, project=project, location="global")
+    return _managed_clients[project]
 
 expense_schema = {
     "type": "OBJECT",
@@ -27,9 +39,52 @@ expense_config = types.GenerateContentConfig(
     response_schema=expense_schema,
 )
 
+
+class GeminiResponseError(ValueError):
+    """Raised when Gemini returns text that is not a JSON object."""
+
+
+def _validated_response_text(response) -> str:
+    text = getattr(response, "text", None)
+    if not isinstance(text, str) or not text.strip():
+        raise GeminiResponseError("Gemini response did not include JSON text")
+    try:
+        parsed = json.loads(text)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise GeminiResponseError("Gemini response text was not valid JSON") from error
+    if not isinstance(parsed, dict):
+        raise GeminiResponseError("Gemini response JSON must be an object")
+    return text
+
+
+def _should_retry_gemini_error(error: Exception) -> bool:
+    return (
+        isinstance(error, genai_errors.APIError)
+        and error.code is not None
+        and (error.code == 429 or 500 <= error.code < 600)
+    )
+
+
+gemini_retry = retry(
+    wait=wait_random_exponential(multiplier=1, max=60),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception(_should_retry_gemini_error),
+    reraise=True,
+)
+
+
+def _detect_image_mime(data: bytes) -> str:
+    if data[:3] == b'\xff\xd8\xff':
+        return "image/jpeg"
+    if data[:4] == b'\x89PNG':
+        return "image/png"
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/jpeg"
+
 # function to call gemini to process expense text
 # implement exponential backoff for load handling
-@retry(wait=wait_random_exponential(multiplier=1, max=60))
+@gemini_retry
 async def process_expense_text(input_text: str, preferred_currency: str = "GBP", existing_categories: list = None, category_rules: list = None):
     """parses expense details from plain text input
     Args:
@@ -71,14 +126,14 @@ async def process_expense_text(input_text: str, preferred_currency: str = "GBP",
     DATE (be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date).
     {rule_instruction}
     """
-    response = await client.aio.models.generate_content(
+    response = await _client().aio.models.generate_content(
         model=MODEL_NAME, contents=prompt, config=expense_config
     )
-    return response.text
+    return _validated_response_text(response)
 
 # function to call gemini to process expense (e.g. receipt) image
 # implement exponential backoff for load handling
-@retry(wait=wait_random_exponential(multiplier=1, max=60))
+@gemini_retry
 async def process_expense_image(image_path: str, caption: str="", preferred_currency: str = "GBP", existing_categories: list = None, category_rules: list = None):
     """parses expense details from image input
     Args:
@@ -130,29 +185,21 @@ async def process_expense_image(image_path: str, caption: str="", preferred_curr
     with open(image_path, "rb") as img_file:
         image_bytes = img_file.read()
 
-    # Detect MIME type from magic bytes instead of assuming PNG
-    if image_bytes[:3] == b'\xff\xd8\xff':
-        mime_type = "image/jpeg"
-    elif image_bytes[:4] == b'\x89PNG':
-        mime_type = "image/png"
-    elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
-        mime_type = "image/webp"
-    else:
-        mime_type = "image/jpeg"  # fallback — most common from Telegram
+    mime_type = _detect_image_mime(image_bytes)
 
     image_part = types.Part.from_bytes(
         mime_type=mime_type,
         data=image_bytes,
     )
 
-    response = await client.aio.models.generate_content(
+    response = await _client().aio.models.generate_content(
         model=MODEL_NAME, contents=[image_part, prompt], config=expense_config
     )
-    return response.text
+    return _validated_response_text(response)
 
 # function to refine extracted expense details
 # implement exponential backoff for load handling
-@retry(wait=wait_random_exponential(multiplier=1, max=60))
+@gemini_retry
 async def refine_expense_details(original_details, user_feedback):
     """Refines the parsed expense details based on user corrections.
     Args:
@@ -170,7 +217,7 @@ async def refine_expense_details(original_details, user_feedback):
     
     Please refine the expense details accordingly while keeping other details unchanged.
     """
-    response = await client.aio.models.generate_content(
+    response = await _client().aio.models.generate_content(
         model=MODEL_NAME, contents=prompt, config=expense_config
     )
-    return response.text
+    return _validated_response_text(response)

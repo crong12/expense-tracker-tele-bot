@@ -3,6 +3,7 @@ import re
 import logging
 from datetime import date, datetime
 from sqlalchemy import select, extract
+from sqlalchemy.exc import IntegrityError
 from database import SessionLocal, Users, Expenses, CategoryRules
 
 def get_or_create_user(telegram_id):
@@ -19,6 +20,9 @@ def get_or_create_user(telegram_id):
         session.commit()
         session.refresh(new_user)
         return new_user.id
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 
@@ -67,7 +71,7 @@ def get_categories(user_id):
     finally:
         session.close()
 
-def insert_expense(user_id, price, category, description, date, currency):
+def insert_expense(user_id, price, category, description, date, currency, telegram_update_id=None):
     """Inserts a new expense record into the database"""
     session = SessionLocal()
 
@@ -78,13 +82,25 @@ def insert_expense(user_id, price, category, description, date, currency):
             category=category,
             description=description,
             date=date,
-            currency=currency
+            currency=currency,
+            telegram_update_id=telegram_update_id,
         )
         session.add(new_expense)
         session.commit()
         session.refresh(new_expense)
 
         return new_expense.id
+
+    except IntegrityError as error:
+        session.rollback()
+        if telegram_update_id is not None:
+            existing = session.query(Expenses).filter(
+                Expenses.user_id == user_id,
+                Expenses.telegram_update_id == telegram_update_id,
+            ).first()
+            if existing:
+                return existing.id
+        print("Error inserting expense: %s", str(error))
 
     except Exception as e:  # pylint: disable=broad-except
         session.rollback()
@@ -93,19 +109,20 @@ def insert_expense(user_id, price, category, description, date, currency):
     finally:
         session.close()
 
-def update_expense(expense_id, price, category, description, date, currency):
+def update_expense(user_id, expense_id, price, category, description, date, currency):
     """updates an existing expense record in the database"""
     session = SessionLocal()
-    expense = session.query(Expenses)\
-        .filter(Expenses.id == expense_id).first()
-
-    expense.price = price
-    expense.category = category
-    expense.description = description
-    expense.date = date
-    expense.currency = currency
-
     try:
+        expense = session.query(Expenses)\
+            .filter(Expenses.user_id == user_id, Expenses.id == expense_id).first()
+        if expense is None:
+            return False
+
+        expense.price = price
+        expense.category = category
+        expense.description = description
+        expense.date = date
+        expense.currency = currency
         session.commit()
         session.refresh(expense)
         return expense.id
@@ -145,19 +162,19 @@ def export_expenses_to_csv(
                 .where(Expenses.user_id == user_id)
                 .where(extract('month', Expenses.date) == current_month)
                 .where(extract('year', Expenses.date) == current_year)
-                .order_by(Expenses.date))
+                .order_by(Expenses.date, Expenses.id))
         elif time_range == "custom_range":
             result = session.execute(
                 select(Expenses)
                 .where(Expenses.user_id == user_id)
                 .where(Expenses.date >= start_date)
                 .where(Expenses.date <= end_date)
-                .order_by(Expenses.date))
+                .order_by(Expenses.date, Expenses.id))
         else:
             result = session.execute(
                 select(Expenses)
                 .where(Expenses.user_id == user_id)
-                .order_by(Expenses.date))
+                .order_by(Expenses.date, Expenses.id))
 
         relevant_expenses = result.scalars().all()
         if not relevant_expenses:    # no expenses found
@@ -189,37 +206,34 @@ def export_expenses_to_csv(
     finally:
         session.close()
 
-def exact_expense_matching(expense_text):
+def exact_expense_matching(user_id, expense_text):
     """Find an expense in the database by matching its details."""
     session = SessionLocal()
+    try:
+        currency_pattern = r"Currency: (\w+)"
+        amount_pattern = r"Amount: ([\d.]+)"
+        category_pattern = r"Category:\s*(.+)"
+        description_pattern = r"Description:\s*(.+)"
+        date_pattern = r"Date: (\d{4}-\d{2}-\d{2})"
 
-    # extract details from the text
-    currency_pattern = r"Currency: (\w+)"
-    amount_pattern = r"Amount: ([\d.]+)"
-    category_pattern = r"Category:\s*(.+)"
-    description_pattern = r"Description:\s*(.+)"
-    date_pattern = r"Date: (\d{4}-\d{2}-\d{2})"
+        currency = re.search(currency_pattern, expense_text).group(1)
+        amount = float(re.search(amount_pattern, expense_text).group(1))
+        category = re.search(category_pattern, expense_text).group(1)
+        description = re.search(description_pattern, expense_text).group(1)
+        expense_date = re.search(date_pattern, expense_text).group(1)
+        date_obj = datetime.strptime(expense_date, "%Y-%m-%d").date()
 
-    currency = re.search(currency_pattern, expense_text).group(1)
-    amount = float(re.search(amount_pattern, expense_text).group(1))
-    category = re.search(category_pattern, expense_text).group(1)
-    description = re.search(description_pattern, expense_text).group(1)
-    date = re.search(date_pattern, expense_text).group(1)
-
-    date_obj = datetime.strptime(date, "%Y-%m-%d").date()  # convert string to date
-
-    # Try to find a matching expense
-    expense = session.query(Expenses).filter(
-        Expenses.price == float(amount),
-        Expenses.category == category,
-        Expenses.description == description,
-        Expenses.date == date_obj,
-        Expenses.currency == currency
-    ).first()
-
-    session.close()
-
-    return expense.id if expense else None
+        matches = session.query(Expenses).filter(
+            Expenses.user_id == user_id,
+            Expenses.price == float(amount),
+            Expenses.category == category,
+            Expenses.description == description,
+            Expenses.date == date_obj,
+            Expenses.currency == currency
+        ).limit(2).all()
+        return matches[0].id if len(matches) == 1 else None
+    finally:
+        session.close()
 
 def delete_all_expenses(user_id):
     """delete all expenses for a specific user"""
@@ -232,6 +246,7 @@ def delete_all_expenses(user_id):
         return True
 
     except Exception as e:  # pylint: disable=broad-except
+        session.rollback()
         print("Error exporting expenses: %s", str(e))
         return False
 
