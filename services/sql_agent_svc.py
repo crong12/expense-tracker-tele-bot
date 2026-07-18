@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from sqlalchemy.sql import text
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
@@ -169,7 +169,7 @@ def _is_read_only_query(query: str) -> bool:
     return not bool(re.search(rf"\b(?:{side_effect_functions})\s*\(", statement, re.IGNORECASE))
 
 @tool
-def db_query_tool(query: str) -> str:
+def db_query_tool(query: Any) -> str:
     """
     Execute a SQL query against the database and get back the result.
     If the query is not correct, an error message will be returned.
@@ -181,7 +181,7 @@ def db_query_tool(query: str) -> str:
     session = None
     try:
         session = SessionLocal()
-        session.execute(text("SET TRANSACTION READ ONLY"))
+        session.connection(execution_options={"postgresql_readonly": True})
         result = session.execute(text(query))
         results_as_dict = result.mappings().all()
 

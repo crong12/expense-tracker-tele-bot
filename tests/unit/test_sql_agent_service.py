@@ -128,25 +128,33 @@ def test_rejected_query_never_constructs_a_session(sql_agent):
     assert calls == 0
 
 
+@pytest.mark.parametrize("value", [None, 42, ["SELECT 1"], {"query": "SELECT 1"}])
+def test_public_tool_rejects_non_string_values_without_constructing_session(sql_agent, value):
+    calls = []
+    sql_agent.SessionLocal = lambda: calls.append(True)
+    assert query(sql_agent, value) == "Query rejected: only a single read-only SELECT statement is allowed."
+    assert calls == []
+
+
 def test_query_serializes_mapping_rows_and_closes_session(sql_agent):
     result = SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [{"amount": Decimal("12.50"), "day": date(2026, 7, 18)}]))
     session = SimpleNamespace(execute=lambda statement: result, close=lambda: None, rollback=lambda: None)
-    executed, closed, rolled_back = [], [], []
+    executed, connection_options, closed, rolled_back = [], [], [], []
     session.execute = lambda statement: (executed.append(statement), result)[1]
+    session.connection = lambda **kwargs: connection_options.append(kwargs)
     session.close = lambda: closed.append(True)
     session.rollback = lambda: rolled_back.append(True)
     sql_agent.SessionLocal = lambda: session
     assert query(sql_agent, "SELECT amount, day FROM expenses") == '[{"amount": "12.50", "day": "2026-07-18"}]'
     assert all(isinstance(statement, TextClause) for statement in executed)
-    assert [str(statement) for statement in executed] == [
-        "SET TRANSACTION READ ONLY",
-        "SELECT amount, day FROM expenses",
-    ]
+    assert [str(statement) for statement in executed] == ["SELECT amount, day FROM expenses"]
+    assert connection_options == [{"execution_options": {"postgresql_readonly": True}}]
     assert closed == [True] and not rolled_back
 
 
 def test_empty_result_closes_without_rollback(sql_agent):
     session = SimpleNamespace(execute=lambda _: SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [])))
+    session.connection = lambda **_: None
     closed, rolled_back = [], []
     session.close = lambda: closed.append(True)
     session.rollback = lambda: rolled_back.append(True)
@@ -157,6 +165,7 @@ def test_empty_result_closes_without_rollback(sql_agent):
 
 def test_query_exception_rolls_back_and_closes_once(sql_agent):
     session = SimpleNamespace(execute=lambda _: (_ for _ in ()).throw(RuntimeError("broken")))
+    session.connection = lambda **_: None
     rolled_back, closed = [], []
     session.rollback = lambda: rolled_back.append(True)
     session.close = lambda: closed.append(True)
@@ -167,12 +176,14 @@ def test_query_exception_rolls_back_and_closes_once(sql_agent):
 
 def test_cleanup_exceptions_do_not_replace_database_error_or_success_response(sql_agent):
     failing = SimpleNamespace(execute=lambda _: (_ for _ in ()).throw(RuntimeError("broken")))
+    failing.connection = lambda **_: None
     failing.rollback = lambda: (_ for _ in ()).throw(RuntimeError("rollback failed"))
     failing.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
     sql_agent.SessionLocal = lambda: failing
     assert query(sql_agent, "SELECT 1") == "Database error: broken"
 
     successful = SimpleNamespace(execute=lambda _: SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [])))
+    successful.connection = lambda **_: None
     successful.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
     successful.rollback = lambda: None
     sql_agent.SessionLocal = lambda: successful
@@ -184,19 +195,17 @@ def test_session_construction_error_returns_database_error(sql_agent):
     assert query(sql_agent, "SELECT 1") == "Database error: unavailable"
 
 
-def test_read_only_transaction_setup_failure_rolls_back_and_closes(sql_agent):
-    calls, rolled_back, closed = [], [], []
-    def execute(statement):
-        calls.append(str(statement))
-        raise RuntimeError("read-only setup failed")
+def test_read_only_connection_option_failure_rolls_back_and_closes_without_executing_query(sql_agent):
+    executed, rolled_back, closed = [], [], []
     session = SimpleNamespace(
-        execute=execute,
+        connection=lambda **_: (_ for _ in ()).throw(RuntimeError("read-only setup failed")),
+        execute=lambda statement: executed.append(statement),
         rollback=lambda: rolled_back.append(True),
         close=lambda: closed.append(True),
     )
     sql_agent.SessionLocal = lambda: session
     assert query(sql_agent, "SELECT 1") == "Database error: read-only setup failed"
-    assert calls == ["SET TRANSACTION READ ONLY"]
+    assert executed == []
     assert rolled_back == [True] and closed == [True]
 
 
