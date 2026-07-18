@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from typing import Annotated, Literal
 from sqlalchemy.sql import text
 from langchain_core.tools import tool
@@ -31,6 +32,90 @@ class State(TypedDict):
 #---------------------------------------------------------------------------------------------------
 # Tools #
 
+_REJECTED_QUERY = "Query rejected: only a single read-only SELECT statement is allowed."
+
+
+def _mask_sql_literals_and_comments(query: str) -> str:
+    """Replace SQL literals/comments with whitespace while preserving SQL structure."""
+    masked = list(query)
+    index = 0
+    length = len(query)
+
+    def erase(start: int, end: int) -> None:
+        for position in range(start, end):
+            if masked[position] != "\n":
+                masked[position] = " "
+
+    while index < length:
+        if query.startswith("--", index):
+            end = query.find("\n", index)
+            erase(index, length if end == -1 else end)
+            index = length if end == -1 else end
+        elif query.startswith("/*", index):
+            end = query.find("*/", index + 2)
+            if end == -1:
+                return ""
+            end += 2
+            erase(index, end)
+            index = end
+        elif query[index] in "'\"":
+            quote = query[index]
+            end = index + 1
+            closed = False
+            while end < length:
+                if query[end] == quote:
+                    if end + 1 < length and query[end + 1] == quote:
+                        end += 2
+                        continue
+                    end += 1
+                    closed = True
+                    break
+                end += 1
+            if not closed:
+                return ""
+            erase(index, end)
+            index = end
+        elif query[index] == "$":
+            delimiter = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", query[index:])
+            if delimiter:
+                token = delimiter.group(0)
+                end = query.find(token, index + len(token))
+                if end == -1:
+                    return ""
+                end += len(token)
+                erase(index, end)
+                index = end
+            else:
+                index += 1
+        else:
+            index += 1
+    return "".join(masked)
+
+
+def _is_read_only_query(query: str) -> bool:
+    """Conservatively allow one non-locking SELECT statement only."""
+    if not isinstance(query, str) or not query.strip():
+        return False
+    masked = _mask_sql_literals_and_comments(query)
+    statement = masked.strip()
+    if statement.endswith(";"):
+        statement = statement[:-1].rstrip()
+    if not statement or ";" in statement:
+        return False
+    if not re.match(r"^(SELECT|WITH)\b", statement, flags=re.IGNORECASE):
+        return False
+    forbidden = (
+        "INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE",
+        "COPY", "CALL", "DO", "SET", "RESET", "GRANT", "REVOKE", "BEGIN", "COMMIT",
+        "ROLLBACK", "VACUUM", "ANALYZE", "LOCK",
+    )
+    if any(re.search(rf"\b{word}\b", statement, flags=re.IGNORECASE) for word in forbidden):
+        return False
+    if re.search(r"\bFOR\s+(UPDATE|SHARE)\b|\bSELECT\b[\s\S]*?\bINTO\b", statement, re.IGNORECASE):
+        return False
+    side_effect_functions = "nextval|setval|pg_sleep|pg_terminate_backend|pg_cancel_backend"
+    return not bool(re.search(rf"\b(?:{side_effect_functions})\s*\(", statement, re.IGNORECASE))
+
 @tool
 def db_query_tool(query: str) -> str:
     """
@@ -38,8 +123,12 @@ def db_query_tool(query: str) -> str:
     If the query is not correct, an error message will be returned.
     If an error is returned, rewrite the query, check the query, and try again.
     """
-    session = SessionLocal()
+    if not _is_read_only_query(query):
+        return _REJECTED_QUERY
+
+    session = None
     try:
+        session = SessionLocal()
         result = session.execute(text(query))
         results_as_dict = result.mappings().all()
 
@@ -48,12 +137,14 @@ def db_query_tool(query: str) -> str:
 
         return "Query executed successfully, but no results were returned."
     except Exception as e:
-        session.rollback()
+        if session is not None:
+            session.rollback()
         error_message = f"Database error: {e}"
         print(error_message)
         return error_message
     finally:
-        session.close()
+        if session is not None:
+            session.close()
 
 class SubmitFinalAnswer(BaseModel):
     """Submit the final answer to the user based on the query results."""
@@ -150,10 +241,14 @@ async def analyst_node(state: State, writer: StreamWriter):
     message = await chain.ainvoke(state)
 
     # Strip trailing newline from final answer if present
-    if message.tool_calls and message.tool_calls[0]["name"] == "SubmitFinalAnswer":
-        message.tool_calls[0]["args"]["final_answer"] = (
-            message.tool_calls[0]["args"]["final_answer"].rstrip('\n')
-        )
+    tool_calls = getattr(message, "tool_calls", None)
+    if isinstance(tool_calls, list) and tool_calls and isinstance(tool_calls[0], dict):
+        first_call = tool_calls[0]
+        args = first_call.get("args")
+        if first_call.get("name") == "SubmitFinalAnswer" and isinstance(args, dict):
+            final_answer = args.get("final_answer")
+            if isinstance(final_answer, str):
+                args["final_answer"] = final_answer.rstrip('\n')
 
     return {"messages": [message]}
 
@@ -162,11 +257,13 @@ async def analyst_node(state: State, writer: StreamWriter):
 
 def route_after_analyst(state: State) -> Literal["tools", "__end__"]:
     """Route to tools if db_query_tool was called, otherwise end (SubmitFinalAnswer or plain text)."""
-    last_message = state["messages"][-1]
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        if last_message.tool_calls[0]["name"] == "SubmitFinalAnswer":
-            return "__end__"
-        return "tools"
+    messages = state.get("messages") if isinstance(state, dict) else None
+    if not isinstance(messages, list) or not messages:
+        return "__end__"
+    tool_calls = getattr(messages[-1], "tool_calls", None)
+    if isinstance(tool_calls, list) and tool_calls and isinstance(tool_calls[0], dict):
+        if tool_calls[0].get("name") == "db_query_tool":
+            return "tools"
     return "__end__"
 
 #---------------------------------------------------------------------------------------------------
