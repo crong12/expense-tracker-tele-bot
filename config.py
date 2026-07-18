@@ -84,9 +84,9 @@ def load_settings(environ=None, *, allow_production_defaults=True) -> Settings:
         _, project_id = google.auth.default()
     return Settings(
         *(values[name] for name in _REQUIRED), project_id,
-        environ.get("LANGSMITH_TRACING", ""),
-        environ.get("LANGSMITH_ENDPOINT", ""),
-        environ.get("LANGSMITH_PROJECT", ""),
+        environ.get("LANGSMITH_TRACING", "true"),
+        environ.get("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com"),
+        environ.get("LANGSMITH_PROJECT", "expense-bot-deployed"),
     )
 
 
@@ -100,11 +100,12 @@ def get_settings() -> Settings:
     return _cached_settings
 
 
-def configure_langsmith(settings: Settings) -> None:
+def configure_langsmith(settings: Settings, environ=None) -> None:
     """Lazily expose configured tracing settings without constructing a client."""
+    environ = os.environ if environ is None else environ
     if (settings.langsmith_tracing.lower() == "true" and settings.langsmith_endpoint
             and settings.langsmith_project and settings.langsmith_api_key):
-        os.environ.update({
+        environ.update({
             "LANGSMITH_TRACING": "true",
             "LANGSMITH_ENDPOINT": settings.langsmith_endpoint,
             "LANGSMITH_PROJECT": settings.langsmith_project,

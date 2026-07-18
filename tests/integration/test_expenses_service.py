@@ -124,6 +124,17 @@ def test_analytics_tool_scopes_aggregate_and_contradictory_list_to_bound_user(db
     assert contradictory == "Query executed successfully, but no results were returned."
 
 
+def test_analytics_embedded_sql_function_is_rejected_before_session_construction(db, monkeypatch):
+    owner, other = _user(1508), _user(1509)
+    _expense(owner, description="Owner only")
+    _expense(other, description="Other private")
+    calls = []
+    monkeypatch.setattr(sql_agent_svc, "SessionLocal", lambda: calls.append(True))
+    with sql_agent_svc.tenant_context(owner):
+        result = sql_agent_svc.db_query_tool.invoke({"query": "SELECT query_to_xml('SELECT * FROM users', true, false, '') FROM expenses"})
+    assert result.startswith("Query rejected:") and calls == []
+
+
 def test_specific_and_bulk_deletion_are_user_isolated(db):
     one, two = _user(1601), _user(1602)
     one_a, one_b, two_a = _expense(one), _expense(one, description="Second"), _expense(two, description="Private")

@@ -16,6 +16,7 @@ INERT_ENVIRONMENT = {
     "DB_PORT": "5432",
     "OPENAI_API_KEY": "test-openai-key",
     "LANGSMITH_API_KEY": "test-langsmith-key",
+    "LANGSMITH_TRACING": "false",
     "GOOGLE_CLOUD_PROJECT": "test-project",
 }
 

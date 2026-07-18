@@ -202,12 +202,50 @@ async def test_webhook_background_failure_releases_duplicate_for_retry(monkeypat
 @pytest.mark.smoke
 def test_configured_app_lazily_sets_langsmith_environment(monkeypatch):
     main = _main()
-    for name in ("LANGSMITH_TRACING", "LANGSMITH_ENDPOINT", "LANGSMITH_PROJECT", "LANGSMITH_API_KEY"):
-        monkeypatch.delenv(name, raising=False)
     settings = main.config.Settings("123:ABC", "r1", "r2", "u", "p", "db", "localhost", "5432", "o", "trace-key", "project", "true", "https://smith.example", "expenses")
-    main.create_app(settings, TelegramApplicationFake())
-    assert {name: __import__("os").environ[name] for name in ("LANGSMITH_TRACING", "LANGSMITH_ENDPOINT", "LANGSMITH_PROJECT", "LANGSMITH_API_KEY")} == {
+    environment = {}
+    main.config.configure_langsmith(settings, environment)
+    assert environment == {
         "LANGSMITH_TRACING": "true", "LANGSMITH_ENDPOINT": "https://smith.example", "LANGSMITH_PROJECT": "expenses", "LANGSMITH_API_KEY": "trace-key"}
+
+
+@pytest.mark.smoke
+def test_configured_app_does_not_enable_tracing_when_settings_disable_it():
+    main = _main()
+    environment = {"preserve": "value"}
+    main.config.configure_langsmith(_settings(main.config), environment)
+    assert environment == {"preserve": "value"}
+
+
+@pytest.mark.smoke
+async def test_webhook_retries_after_ptb_error_handler_marks_update_failed(monkeypatch):
+    main = _main()
+    telegram = TelegramApplicationFake()
+    application = main.create_app(telegram_application=telegram)
+    monkeypatch.setattr(main, "is_user_whitelisted", lambda _: True)
+    update = SimpleNamespace(update_id=25, effective_user=SimpleNamespace(username="allowed", id=7), effective_chat=SimpleNamespace(id=9))
+    monkeypatch.setattr(main.Update, "de_json", lambda *_: update)
+    asyncio = __import__("asyncio")
+    error_marked, release = asyncio.Event(), asyncio.Event()
+    calls = 0
+    async def process(received):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            context = SimpleNamespace(error=RuntimeError("callback failed"))
+            await telegram.errors[0](received, context)
+            error_marked.set()
+            await release.wait()
+    telegram.process_update.side_effect = process
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        first = asyncio.create_task(client.post("/", json={"update_id": 25}))
+        await error_marked.wait()
+        assert (await client.post("/", json={"update_id": 25})).status_code == 200
+        assert telegram.process_update.await_count == 1
+        release.set()
+        assert (await first).status_code == 200
+        assert (await client.post("/", json={"update_id": 25})).status_code == 200
+    assert telegram.process_update.await_count == 2
 
 
 @pytest.mark.smoke

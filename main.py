@@ -57,8 +57,16 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
     runtime = None
     processed_updates = OrderedDict()
     in_flight_updates = set()
+    failed_updates = set()
     dedupe_lock = asyncio.Lock()
     handlers_registered = False
+
+    async def scoped_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        update_id = getattr(update, "update_id", None)
+        if isinstance(update_id, int):
+            async with dedupe_lock:
+                failed_updates.add(update_id)
+        await error_handler(update, context)
 
     def configure(application):
         nonlocal bot_app, runtime, supplied_settings, handlers_registered
@@ -90,7 +98,7 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
             bot_app.add_handler(MessageHandler(filters.TEXT, runtime["reject_unexpected_messages"]))
             bot_app.add_handler(CommandHandler("start", runtime["start"]))
             bot_app.add_handler(CommandHandler("quit", runtime["quit_bot"]))
-            bot_app.add_error_handler(error_handler)
+            bot_app.add_error_handler(scoped_error_handler)
             handlers_registered = True
         return bot_app
 
@@ -135,6 +143,7 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
     application.state.settings = supplied_settings
     application.state.processed_updates = processed_updates
     application.state.in_flight_updates = in_flight_updates
+    application.state.failed_updates = failed_updates
     application.state.last_update_time = None
     if bot_app is not None:
         configure(application)
@@ -150,10 +159,14 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
             logging.error("Error processing update %s: %s", update.update_id, exc)
             async with dedupe_lock:
                 in_flight_updates.discard(update.update_id)
+                failed_updates.discard(update.update_id)
         else:
             async with dedupe_lock:
                 in_flight_updates.discard(update.update_id)
-                remember(update.update_id)
+                if update.update_id in failed_updates:
+                    failed_updates.discard(update.update_id)
+                else:
+                    remember(update.update_id)
 
     def remember(update_id):
         processed_updates[update_id] = None

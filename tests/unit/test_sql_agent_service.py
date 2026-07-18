@@ -136,15 +136,29 @@ def test_query_requires_authenticated_tenant_context(sql_agent):
 
 
 @pytest.mark.parametrize("sql", [
+    "SELECT count(*) FROM expenses", "SELECT round(sum(price), 2) FROM expenses",
+    "SELECT date_trunc('month', date), avg(price) FROM expenses GROUP BY date_trunc('month', date)",
+    "SELECT lower(category) FROM expenses WHERE category IN ('Food', 'Travel')",
+])
+def test_tenant_tool_allows_documented_pure_analytics_functions(sql_agent, sql):
+    assert sql_agent._uses_only_safe_analytics_functions(sql) is True
+
+
+@pytest.mark.parametrize("sql", [
     "SELECT * FROM users", "SELECT * FROM public.expenses", "SELECT * FROM generate_series(1, 2)",
     "SELECT pg_read_file('postgresql.conf')", "SELECT current_setting('data_directory')",
     'SELECT * FROM expenses, users', 'SELECT * FROM expenses, "public"."users"',
+    "SELECT query_to_xml('SELECT * FROM users', true, false, '') FROM expenses",
+    "SELECT pg_read_file('postgresql.conf') FROM expenses",
+    "SELECT current_setting('data_directory') FROM expenses",
+    "SELECT public.pg_read_file('postgresql.conf') FROM expenses",
+    'SELECT "pg_read_file"(\'postgresql.conf\') FROM expenses',
 ])
 def test_tenant_tool_rejects_non_expense_and_relation_free_bypasses(sql_agent, sql):
     calls = []
     sql_agent.SessionLocal = lambda: calls.append(True)
     with sql_agent.tenant_context("tenant-1"):
-        assert query(sql_agent, sql) == "Query rejected: query may only access the tenant-scoped expenses relation."
+        assert query(sql_agent, sql).startswith("Query rejected:")
     assert calls == []
 
 

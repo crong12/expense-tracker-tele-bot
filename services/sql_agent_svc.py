@@ -46,6 +46,11 @@ _REJECTED_QUERY = "Query rejected: only a single read-only SELECT statement is a
 _NO_TENANT_CONTEXT = "Query rejected: no authenticated tenant context."
 _REJECTED_TENANT_QUERY = "Query rejected: query may only access the tenant-scoped expenses relation."
 _tenant_user_id = ContextVar("expense_tracker_tenant_user_id", default=None)
+_SAFE_ANALYTICS_FUNCTIONS = frozenset({
+    "count", "sum", "avg", "min", "max", "round", "abs", "coalesce", "nullif",
+    "date_trunc", "extract", "lower", "upper", "length",
+})
+_NON_FUNCTION_PAREN_TOKENS = frozenset({"in"})
 
 
 @contextmanager
@@ -70,6 +75,17 @@ def _uses_only_expenses_relation(query: str) -> bool:
     if not relations:
         return bool(re.match(r"^\s*SELECT\s+(?:\d+|NULL|TRUE|FALSE)(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?(?:\s+WHERE\s+(?:TRUE|FALSE))?\s*$", masked, flags=re.IGNORECASE))
     return all(relation.lower() == "expenses" for relation in relations)
+
+
+def _uses_only_safe_analytics_functions(query: str) -> bool:
+    """Allow a small, explicit set of pure analytic functions at the tenant boundary."""
+    masked = _mask_sql_literals_and_comments(query)
+    if not masked:
+        return False
+    if re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*[A-Za-z_][A-Za-z0-9_]*\s*\(", masked):
+        return False
+    function_names = re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", masked)
+    return all(name.lower() in _SAFE_ANALYTICS_FUNCTIONS | _NON_FUNCTION_PAREN_TOKENS for name in function_names)
 
 
 def _tenant_scoped_query(query: str) -> str:
@@ -224,6 +240,8 @@ def db_query_tool(query: Any) -> str:
         return _NO_TENANT_CONTEXT
     if not _uses_only_expenses_relation(query):
         return _REJECTED_TENANT_QUERY
+    if not _uses_only_safe_analytics_functions(query):
+        return _REJECTED_TENANT_QUERY
 
     session = None
     try:
@@ -296,8 +314,8 @@ Query rules:
 - Output the query as a single line — no newlines or formatting.
 - Use single quotes (') for string literals, NEVER double quotes (").
 - Do NOT use escape characters like backslashes before quotes.
-- Only query rows belonging to the user_id provided in the context.
-- Use user_id only in WHERE for filtering; do not SELECT user_id or id unless strictly required.
+- Tenant scoping is automatic: query only the unqualified `expenses` relation and never include user_id filters.
+- Use only these analytics functions when needed: count, sum, avg, min, max, round, abs, coalesce, nullif, date_trunc, extract, lower, upper, length.
 - Use only the list of categories provided in context. Do not make up categories.
 - Use ILIKE for case-insensitive matching.
 - Always query for currency.

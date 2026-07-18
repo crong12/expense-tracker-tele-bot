@@ -3,6 +3,14 @@ from types import SimpleNamespace
 import config
 
 
+def test_load_settings_enables_documented_production_tracing_defaults():
+    environment = {name: "value" for name in config._REQUIRED}
+    environment["GOOGLE_CLOUD_PROJECT"] = "project"
+    settings = config.load_settings(environment, allow_production_defaults=False)
+    assert (settings.langsmith_tracing, settings.langsmith_endpoint, settings.langsmith_project) == (
+        "true", "https://api.smith.langchain.com", "expense-bot-deployed")
+
+
 def test_explicit_project_is_used_for_missing_secrets_without_adc_project_lookup(monkeypatch):
     requests = []
     monkeypatch.setattr("google.auth.default", lambda: (_ for _ in ()).throw(AssertionError("ADC called")))
