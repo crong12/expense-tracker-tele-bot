@@ -178,12 +178,27 @@ async def test_text_retries_transient_gemini_error_then_returns_success(gemini_s
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [TimeoutError("timed out"), ConnectionError("disconnected")])
-async def test_text_retries_transient_transport_error_then_returns_success(gemini_service, error):
-    fake = FakeClient([error, SimpleNamespace(text='{}')])
+@pytest.mark.parametrize("function", [
+    "process_expense_text", "process_expense_image", "refine_expense_details",
+])
+async def test_public_functions_do_not_retry_builtin_transport_errors(
+    gemini_service, monkeypatch, tmp_path, error, function,
+):
+    args = ("coffee",)
+    if function == "process_expense_image":
+        image = tmp_path / "receipt.jpg"
+        image.write_bytes(b"\xff\xd8\xffx")
+        monkeypatch.setattr(gemini_service.types.Part, "from_bytes", Mock(return_value="part"))
+        args = (str(image),)
+    elif function == "refine_expense_details":
+        args = ({}, "feedback")
+    fake = FakeClient([error])
     gemini_service.client = fake
 
-    assert await gemini_service.process_expense_text("coffee") == "{}"
-    assert fake.aio.models.generate_content.await_count == 2
+    with pytest.raises(type(error)):
+        await getattr(gemini_service, function)(*args)
+
+    assert fake.aio.models.generate_content.await_count == 1
 
 
 @pytest.mark.asyncio

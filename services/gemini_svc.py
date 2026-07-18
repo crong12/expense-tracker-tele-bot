@@ -49,8 +49,6 @@ def _validated_response_text(response) -> str:
 
 
 def _should_retry_gemini_error(error: Exception) -> bool:
-    if isinstance(error, (TimeoutError, ConnectionError)):
-        return True
     return (
         isinstance(error, genai_errors.APIError)
         and error.code is not None
