@@ -17,6 +17,7 @@ def test_explicit_project_is_used_for_missing_secrets_without_adc_project_lookup
 def test_database_url_dispatches_by_scoped_settings_without_explicit_environment(monkeypatch):
     import database
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(database, "get_settings", config.get_settings)
     values = ["t", "r", "r", "a", "p", "d", "h", "1", "o", "l", "x"]
     a = config.Settings(*values)
     values[3] = "b"
