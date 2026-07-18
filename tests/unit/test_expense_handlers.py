@@ -8,18 +8,17 @@ import importlib
 
 import pytest
 
-from tests.handler_test_bootstrap import ensure_focused_handler_dependencies
-
-
-_MODULE_SNAPSHOT = {name: sys.modules.get(name) for name in (
-    "handlers.expenses_handler", "services", "services.gemini_svc", "services.expenses_svc", "services.sql_agent_svc",
-)}
-ensure_focused_handler_dependencies()
-from config import (  # noqa: E402
-    AWAITING_CATEGORY_RULE, AWAITING_CONFIRMATION, AWAITING_DELETE_CONFIRMATION,
-    AWAITING_DELETE_REQUEST, AWAITING_EDIT, AWAITING_QUERY, AWAITING_REFINEMENT,
-    WAITING_FOR_EXPENSE,
+from tests.handler_test_bootstrap import (
+    FOCUSED_MODULE_NAMES, ensure_focused_handler_dependencies, ensure_focused_handlers_package,
+    restore_module_registry,
 )
+
+
+_MODULE_SNAPSHOT = {name: sys.modules.get(name) for name in FOCUSED_MODULE_NAMES}
+# Matches the inert focused config installed during setup; tests resolve these at runtime.
+(WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, AWAITING_EDIT,
+ AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, AWAITING_QUERY,
+ _AWAITING_EXPORT_CONFIRMATION, AWAITING_CATEGORY_RULE) = range(9)
 from tests.fakes.telegram import TelegramScenario  # noqa: E402
 
 expenses_handler = None
@@ -31,16 +30,13 @@ pytestmark = pytest.mark.unit
 def setup_module():
     global expenses_handler
     ensure_focused_handler_dependencies(reset=True)
+    ensure_focused_handlers_package()
     expenses_handler = importlib.import_module("handlers.expenses_handler")
 
 
 def teardown_module():
     """Restore modules that were present before this isolated handler suite."""
-    for name, module in _MODULE_SNAPSHOT.items():
-        if module is None:
-            sys.modules.pop(name, None)
-        else:
-            sys.modules[name] = module
+    restore_module_registry(_MODULE_SNAPSHOT)
 
 EXPENSE = {"currency": "GBP", "price": 12.5, "category": "Food", "description": "Lunch", "date": "2026-07-18"}
 
@@ -61,6 +57,13 @@ def configure_insert(monkeypatch, response='{}'):
 def test_real_expense_handler_is_loaded_from_this_worktree():
     worktree = Path(__file__).parents[2]
     assert Path(expenses_handler.__file__).resolve() == worktree / "handlers" / "expenses_handler.py"
+
+
+def test_module_registry_restoration_preserves_sentinels_and_absence():
+    sentinel = object()
+    registry = {"sentinel": sentinel, "temporary": object()}
+    restore_module_registry({"sentinel": sentinel, "missing": None, "temporary": None}, registry)
+    assert registry == {"sentinel": sentinel}
 
 
 def test_context_cleanup_helpers_preserve_unrelated_values():

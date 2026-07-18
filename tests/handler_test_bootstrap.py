@@ -6,6 +6,22 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 
+FOCUSED_MODULE_NAMES = (
+    "handlers", "handlers.expenses_handler", "config", "services",
+    "services.gemini_svc", "services.expenses_svc", "services.sql_agent_svc",
+)
+
+
+def restore_module_registry(snapshot, registry=None):
+    """Restore exact module objects (or absence) after a focused import."""
+    registry = sys.modules if registry is None else registry
+    for name, module in snapshot.items():
+        if module is None:
+            registry.pop(name, None)
+        else:
+            registry[name] = module
+
+
 def ensure_focused_handlers_package():
     """Install only a namespace pointing at the repository's real handlers."""
     if "handlers" not in sys.modules:
@@ -20,7 +36,8 @@ def ensure_focused_handlers_package():
 def ensure_focused_handler_dependencies(reset=False):
     """Provide inert direct dependencies for isolated handler imports."""
     if reset:
-        for name in ("handlers.expenses_handler", "services.gemini_svc", "services.expenses_svc", "services.sql_agent_svc"):
+        for name in ("handlers", "handlers.expenses_handler", "config", "services",
+                     "services.gemini_svc", "services.expenses_svc", "services.sql_agent_svc"):
             sys.modules.pop(name, None)
     if "config" not in sys.modules:
         config = types.ModuleType("config")
@@ -67,7 +84,3 @@ def ensure_focused_handler_dependencies(reset=False):
         )
     if "services.sql_agent_svc" not in sys.modules:
         install("services.sql_agent_svc", analyser_agent=MagicMock())
-
-
-ensure_focused_handlers_package()
-ensure_focused_handler_dependencies()
