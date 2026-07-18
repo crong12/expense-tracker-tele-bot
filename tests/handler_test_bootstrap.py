@@ -39,6 +39,32 @@ def ensure_focused_handler_dependencies():
         services.get_or_create_user = MagicMock()
         sys.modules["services"] = services
 
+    def install(name, **attributes):
+        module = types.ModuleType(name)
+        for attribute, value in attributes.items():
+            setattr(module, attribute, value)
+        sys.modules[name] = module
+
+    if "services.gemini_svc" not in sys.modules:
+        install(
+            "services.gemini_svc",
+            process_expense_text=MagicMock(),
+            process_expense_image=MagicMock(),
+            refine_expense_details=MagicMock(),
+        )
+    if "services.expenses_svc" not in sys.modules:
+        install(
+            "services.expenses_svc",
+            insert_expense=MagicMock(), update_expense=MagicMock(),
+            get_or_create_user=MagicMock(), exact_expense_matching=MagicMock(),
+            delete_all_expenses=MagicMock(), delete_specific_expense=MagicMock(),
+            get_categories=MagicMock(), get_user_preferred_currency=MagicMock(),
+            set_user_preferred_currency=MagicMock(), get_category_rules=MagicMock(),
+            insert_category_rule=MagicMock(),
+        )
+    if "services.sql_agent_svc" not in sys.modules:
+        install("services.sql_agent_svc", analyser_agent=MagicMock())
+
 
 ensure_focused_handlers_package()
 ensure_focused_handler_dependencies()

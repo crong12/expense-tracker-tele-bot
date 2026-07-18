@@ -15,13 +15,20 @@ class TelegramScenario:
         username="expense_user",
         user_id=101,
         chat_id=202,
+        reply_to_text=None,
+        photos=None,
+        caption=None,
+        message_id=1,
     ):
         self.message = SimpleNamespace(
             text=text,
             chat_id=chat_id,
-            reply_to_message=None,
+            message_id=message_id,
+            reply_to_message=(SimpleNamespace(text=reply_to_text) if reply_to_text is not None else None),
             reply_text=AsyncMock(),
             edit_text=AsyncMock(),
+            photo=photos or [],
+            caption=caption,
         )
         self.callback_query = SimpleNamespace(
             data=callback_data,

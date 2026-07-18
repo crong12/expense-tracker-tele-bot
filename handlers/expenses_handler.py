@@ -56,17 +56,23 @@ async def process_insert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         image_file = await image.get_file()
         image_path = f"/tmp/{image_file.file_unique_id}.jpg"
         await image_file.download_to_drive(custom_path=image_path)
-        if message.caption:
-            img_caption = message.caption
-            response = await process_expense_image(image_path, caption=img_caption, preferred_currency=preferred_currency, existing_categories=existing_categories, category_rules=category_rules)
-        else:
-            response = await process_expense_image(image_path, preferred_currency=preferred_currency, existing_categories=existing_categories, category_rules=category_rules)
-        os.remove(image_path)   # remove image after parsing completed
+        try:
+            if message.caption:
+                img_caption = message.caption
+                response = await process_expense_image(image_path, caption=img_caption, preferred_currency=preferred_currency, existing_categories=existing_categories, category_rules=category_rules)
+            else:
+                response = await process_expense_image(image_path, preferred_currency=preferred_currency, existing_categories=existing_categories, category_rules=category_rules)
+        finally:
+            os.remove(image_path)   # remove image after parsing completed
     else:
         await message.reply_text("⚠️ I'm sorry, I don't know what that is. Please send either a text message or photo!")
         return WAITING_FOR_EXPENSE
 
     json_response = str_to_json(response)
+    if not isinstance(json_response, dict) or not all(
+            field in json_response for field in ('currency', 'price', 'category', 'description', 'date')):
+        await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
+        return WAITING_FOR_EXPENSE
     context.user_data['parsed_expense'] = json_response
 
     await update.message.reply_text(
@@ -138,6 +144,9 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     date=parsed_expense['date'],
                     currency=parsed_expense['currency']
                 )
+                if not expense_id:
+                    await context.bot.send_message(chat_id, "⚠️ There was an issue processing your request. Please try again.")
+                    return WAITING_FOR_EXPENSE
                 # update preferred currency to match the confirmed expense
                 set_user_preferred_currency(telegram_id, parsed_expense['currency'])
                 await context.bot.send_message(chat_id,
@@ -189,6 +198,10 @@ async def refine_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     refined_response = await refine_expense_details(original_details, user_feedback)
     json_refined_response = str_to_json(refined_response)
+    if not isinstance(json_refined_response, dict) or not all(
+            field in json_refined_response for field in ('currency', 'price', 'category', 'description', 'date')):
+        await update.message.reply_text("⚠️ There was an issue processing your request. Please try again.")
+        return AWAITING_REFINEMENT
 
     # Check if currency was changed during refinement
     refined_currency = json_refined_response.get('currency', '')
@@ -336,14 +349,16 @@ async def delete_expense_confirmation(update: Update, context: ContextTypes.DEFA
     telegram_id = query.message.chat_id
     user_id = get_or_create_user(telegram_id)
 
-    if query.data == "confirmation" and context.user_data["specific_or_all"] == 'all':
+    deletion_mode = context.user_data.get("specific_or_all")
+
+    if query.data == "confirmation" and deletion_mode == 'all':
         operation = delete_all_expenses(user_id)
         if operation:
             await query.message.reply_text("✅ All your expenses have been deleted successfully.")
         else:
             await query.message.reply_text("⚠️ An error occurred while deleting your expenses. Please try again.")
 
-    elif query.data == "confirmation" and context.user_data["specific_or_all"] == 'specific':
+    elif query.data == "confirmation" and deletion_mode == 'specific' and context.user_data.get("expense_id"):
         expense_id = context.user_data["expense_id"]    # extract expense ID from context
         operation = delete_specific_expense(user_id, expense_id)
         if operation:
