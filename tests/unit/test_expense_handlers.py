@@ -3,23 +3,44 @@
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+import sys
+import importlib
 
 import pytest
 
 from tests.handler_test_bootstrap import ensure_focused_handler_dependencies
 
 
+_MODULE_SNAPSHOT = {name: sys.modules.get(name) for name in (
+    "handlers.expenses_handler", "services", "services.gemini_svc", "services.expenses_svc", "services.sql_agent_svc",
+)}
 ensure_focused_handler_dependencies()
 from config import (  # noqa: E402
     AWAITING_CATEGORY_RULE, AWAITING_CONFIRMATION, AWAITING_DELETE_CONFIRMATION,
     AWAITING_DELETE_REQUEST, AWAITING_EDIT, AWAITING_QUERY, AWAITING_REFINEMENT,
     WAITING_FOR_EXPENSE,
 )
-from handlers import expenses_handler  # noqa: E402
 from tests.fakes.telegram import TelegramScenario  # noqa: E402
+
+expenses_handler = None
 
 
 pytestmark = pytest.mark.unit
+
+
+def setup_module():
+    global expenses_handler
+    ensure_focused_handler_dependencies(reset=True)
+    expenses_handler = importlib.import_module("handlers.expenses_handler")
+
+
+def teardown_module():
+    """Restore modules that were present before this isolated handler suite."""
+    for name, module in _MODULE_SNAPSHOT.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
 
 EXPENSE = {"currency": "GBP", "price": 12.5, "category": "Food", "description": "Lunch", "date": "2026-07-18"}
 
@@ -43,7 +64,7 @@ def test_real_expense_handler_is_loaded_from_this_worktree():
 
 
 def test_context_cleanup_helpers_preserve_unrelated_values():
-    data = {"parsed_expense": EXPENSE, "is_editing": True, "editing_expense_id": 2, "specific_or_all": "specific", "expense_id": 2, "keep": 1}
+    data = {"parsed_expense": EXPENSE, "is_editing": True, "editing_expense_id": 2, "category_corrected": True, "specific_or_all": "specific", "expense_id": 2, "keep": 1}
     expenses_handler._clear_expense_context(data)
     expenses_handler._clear_delete_context(data)
     assert data == {"keep": 1}
@@ -53,6 +74,7 @@ def test_context_cleanup_helpers_preserve_unrelated_values():
     {**EXPENSE, "price": "12.50"}, {**EXPENSE, "price": -1},
     {**EXPENSE, "currency": "gbp"}, {**EXPENSE, "category": ""},
     {**EXPENSE, "description": None}, {**EXPENSE, "date": "tomorrow"},
+    {**EXPENSE, "price": float("nan")}, {**EXPENSE, "price": float("inf")}, {**EXPENSE, "price": float("-inf")},
 ])
 def test_expense_shape_validator_rejects_bad_key_complete_values(value):
     assert expenses_handler._is_valid_expense(value) is False
@@ -156,8 +178,8 @@ async def test_invalid_confirmation_clears_all_owned_context(monkeypatch):
     assert scenario.context.user_data == {"keep": 1}
 
 
-@pytest.mark.parametrize("handler", ["insert", "refine", "edit"])
-async def test_bad_key_complete_structured_results_are_never_formatted(monkeypatch, handler):
+@pytest.mark.parametrize(("handler", "expected_state"), [("insert", WAITING_FOR_EXPENSE), ("refine", AWAITING_REFINEMENT), ("edit", AWAITING_EDIT)])
+async def test_bad_key_complete_structured_results_are_never_formatted(monkeypatch, handler, expected_state):
     invalid = {**EXPENSE, "price": "not-a-number"}
     if handler == "insert":
         scenario = TelegramScenario(text="lunch")
@@ -172,7 +194,7 @@ async def test_bad_key_complete_structured_results_are_never_formatted(monkeypat
         monkeypatch.setattr(expenses_handler, "refine_expense_details", AsyncMock(return_value="x"))
     monkeypatch.setattr(expenses_handler, "str_to_json", MagicMock(return_value=invalid))
     result = await ({"insert": expenses_handler.process_insert, "refine": expenses_handler.refine_details, "edit": expenses_handler.process_edit}[handler])(scenario.update, scenario.context)
-    assert result in (WAITING_FOR_EXPENSE, AWAITING_REFINEMENT, AWAITING_EDIT)
+    assert result == expected_state
     assert scenario.context.user_data.get("parsed_expense") != invalid
 
 
@@ -339,6 +361,8 @@ async def test_edit_fallback_no_match_and_refinement_failures_are_safe(monkeypat
     result = await expenses_handler.process_edit(scenario.update, scenario.context)
     assert result == AWAITING_EDIT
     matcher.assert_called_once_with(source)
+    assert scenario.message.reply_text.await_args_list[0].args[0] == "⏱️ Trying to find the expense in the database..."
+    assert scenario.message.reply_text.await_args_list[-1].args[0] == "⚠️ Sorry, I couldn't find the expense in the database. Please try again."
 
     scenario = TelegramScenario(text="change", reply_to_text=source)
     monkeypatch.setattr(expenses_handler, "exact_expense_matching", MagicMock(return_value=4))
@@ -355,6 +379,7 @@ async def test_delete_all_prompts_for_confirmation():
 
     assert result == AWAITING_DELETE_CONFIRMATION
     assert scenario.context.user_data["specific_or_all"] == "all"
+    assert scenario.message.reply_text.await_args.args[0] == "⚠️ Are you sure you want to delete ALL your expenses? This action is irreversible!"
 
 
 async def test_specific_delete_falls_back_to_matching_and_stores_only_selected_id(monkeypatch):
@@ -396,6 +421,7 @@ async def test_delete_confirmation_delegates_correctly_and_cleans_context(monkey
     monkeypatch.setattr(expenses_handler, "delete_specific_expense", specific)
     result = await expenses_handler.delete_expense_confirmation(scenario.update, scenario.context)
     assert result == WAITING_FOR_EXPENSE
+    scenario.callback_query.answer.assert_awaited_once_with()
     if mode == "all": bulk.assert_called_once_with("user-1")
     else: specific.assert_called_once_with("user-1", 6)
     assert "specific_or_all" not in scenario.context.user_data and "expense_id" not in scenario.context.user_data
@@ -409,6 +435,8 @@ async def test_delete_cancellation_cleans_context(monkeypatch):
     monkeypatch.setattr(expenses_handler, "get_or_create_user", MagicMock(return_value="user-1"))
     await expenses_handler.delete_expense_confirmation(scenario.update, scenario.context)
     assert "specific_or_all" not in scenario.context.user_data
+    scenario.callback_query.answer.assert_awaited_once_with()
+    scenario.message.edit_text.assert_awaited_once_with("🚫 Expense deletion canceled.")
 
 
 async def test_save_rule_delegates_and_always_cleans_pending_context(monkeypatch):
@@ -448,6 +476,13 @@ async def test_rule_terminal_paths_preserve_identity_cleanup_and_prompt(monkeypa
     assert "pending_rule_keyword" not in scenario.context.user_data and "pending_rule_category" not in scenario.context.user_data
     assert scenario.context.user_data["user_id"] == "u" and scenario.context.user_data["keep"] == 1
     assert scenario.bot.send_message.await_args_list[-1].args[1] == "Would you like to add another expense? Type it below or send /start to go back to the main menu."
+    scenario.callback_query.answer.assert_awaited_once_with()
+    if callback == "save_rule" and service_result:
+        assert "Got it!" in scenario.bot.send_message.await_args_list[0].args[1]
+    elif callback == "save_rule":
+        assert "couldn't save" in scenario.bot.send_message.await_args_list[0].args[1]
+    else:
+        assert scenario.bot.send_message.await_args_list[0].args[1] == "👍 No problem!"
 
 
 async def test_skip_rule_acknowledges_and_cleans_pending_context():

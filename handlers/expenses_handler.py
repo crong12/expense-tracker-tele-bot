@@ -2,6 +2,7 @@ import re
 import os
 import time
 import logging
+import math
 from datetime import date
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
@@ -50,7 +51,7 @@ def _is_valid_expense(value):
         return False
     if not (isinstance(value.get('currency'), str) and re.fullmatch(r'[A-Z]{3}', value['currency'])):
         return False
-    if not (isinstance(value.get('price'), (int, float)) and not isinstance(value['price'], bool) and value['price'] >= 0):
+    if not (isinstance(value.get('price'), (int, float)) and not isinstance(value['price'], bool) and math.isfinite(value['price']) and value['price'] >= 0):
         return False
     if not all(isinstance(value.get(field), str) and value[field].strip() for field in ('category', 'description')):
         return False
