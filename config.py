@@ -1,6 +1,8 @@
 """Import-safe application configuration."""
 
 from dataclasses import dataclass
+from contextlib import contextmanager
+from contextvars import ContextVar
 import os
 
 MODEL_NAME = "gemini-3.1-flash-lite"
@@ -32,6 +34,7 @@ class Settings:
 
 
 _cached_settings = None
+_scoped_settings = ContextVar("expense_tracker_settings", default=None)
 
 
 def install_settings(settings: Settings | None) -> None:
@@ -39,15 +42,25 @@ def install_settings(settings: Settings | None) -> None:
     _cached_settings = settings
 
 
-def _production_secrets(names):
+@contextmanager
+def settings_context(settings: Settings):
+    token = _scoped_settings.set(settings)
+    try:
+        yield
+    finally:
+        _scoped_settings.reset(token)
+
+
+def _production_secrets(names, project_id=None):
     import google.auth
     from google.cloud import secretmanager
-    _, project = google.auth.default()
+    if not project_id:
+        _, project_id = google.auth.default()
     client = secretmanager.SecretManagerServiceClient()
     values = {name: client.access_secret_version(
-        request={"name": f"projects/{project}/secrets/{name}/versions/latest"}
+        request={"name": f"projects/{project_id}/secrets/{name}/versions/latest"}
     ).payload.data.decode("UTF-8").strip() for name in names}
-    return project, values
+    return project_id, values
 
 
 def load_settings(environ=None, *, allow_production_defaults=True) -> Settings:
@@ -56,7 +69,7 @@ def load_settings(environ=None, *, allow_production_defaults=True) -> Settings:
     missing = [name for name, value in values.items() if not value]
     project_id = environ.get("GOOGLE_CLOUD_PROJECT")
     if missing and allow_production_defaults:
-        project_id, secrets = _production_secrets(missing)
+        project_id, secrets = _production_secrets(missing, project_id=project_id)
         values.update(secrets)
         missing = [name for name, value in values.items() if not value]
     if missing:
@@ -71,6 +84,9 @@ def load_settings(environ=None, *, allow_production_defaults=True) -> Settings:
 
 def get_settings() -> Settings:
     global _cached_settings
+    scoped = _scoped_settings.get()
+    if scoped is not None:
+        return scoped
     if _cached_settings is None:
         _cached_settings = load_settings()
     return _cached_settings

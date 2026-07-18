@@ -23,18 +23,21 @@ is_user_whitelisted = None
 
 
 def _runtime(settings, persistence=True):
-    config.install_settings(settings)
-    from handlers import (button_click, delete_expense_confirmation, export_expenses,
-                          handle_category_rule, handle_confirmation, process_delete, process_edit,
-                          process_insert, process_query, quit_bot, refine_details,
-                          reject_unexpected_messages, start)
-    from services.whitelist_svc import is_user_whitelisted
+    with config.settings_context(settings):
+        from handlers import (button_click, delete_expense_confirmation, export_expenses,
+                              handle_category_rule, handle_confirmation, process_delete, process_edit,
+                              process_insert, process_query, quit_bot, refine_details,
+                              reject_unexpected_messages, start)
+        from services.whitelist_svc import is_user_whitelisted
     result = locals()
     if persistence:
-        from database import PERSISTENCE_URL
         from ptbcontrib.postgres_persistence import PostgresPersistence
-        result["persistence"] = PostgresPersistence(url=PERSISTENCE_URL, on_flush=True)
+        result["persistence"] = PostgresPersistence(url=_persistence_url(settings), on_flush=True)
     return result
+
+
+def _persistence_url(settings):
+    return f"postgresql://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -49,18 +52,20 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
     bot_app = telegram_application
     runtime = None
     processed_updates = OrderedDict()
+    handlers_registered = False
 
     def configure(application):
-        nonlocal bot_app, runtime, supplied_settings
+        nonlocal bot_app, runtime, supplied_settings, handlers_registered
         if supplied_settings is None:
             supplied_settings = config.get_settings()
+            application.state.settings = supplied_settings
         if runtime is None:
             runtime = _runtime(supplied_settings, persistence=bot_app is None)
         if bot_app is None:
             request = HTTPXRequest(connect_timeout=20, read_timeout=30, write_timeout=30, pool_timeout=5)
             bot_app = Application.builder().token(supplied_settings.bot_token).persistence(runtime["persistence"]).request(request).build()
             application.state.telegram_application = bot_app
-        if not getattr(bot_app, "_expense_handlers_registered", False):
+        if not handlers_registered:
             conversation = ConversationHandler(
                 entry_points=[CommandHandler("start", runtime["start"]), CallbackQueryHandler(runtime["button_click"])],
                 states={
@@ -79,7 +84,7 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
             bot_app.add_handler(CommandHandler("start", runtime["start"]))
             bot_app.add_handler(CommandHandler("quit", runtime["quit_bot"]))
             bot_app.add_error_handler(error_handler)
-            setattr(bot_app, "_expense_handlers_registered", True)
+            handlers_registered = True
         return bot_app
 
     @asynccontextmanager
@@ -120,6 +125,7 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
 
     application = FastAPI(lifespan=lifespan)
     application.state.telegram_application = bot_app
+    application.state.settings = supplied_settings
     application.state.processed_updates = processed_updates
     application.state.last_update_time = None
     if bot_app is not None:
@@ -133,6 +139,11 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
             await configure(application).process_update(update)
         except Exception as exc:
             logging.error("Error processing update %s: %s", update.update_id, exc)
+
+    def remember(update_id):
+        processed_updates[update_id] = None
+        if len(processed_updates) > MAX_PROCESSED_UPDATES:
+            processed_updates.popitem(last=False)
 
     @application.post("/")
     async def webhook(request: Request, background_tasks: BackgroundTasks):
@@ -157,7 +168,7 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
             username = update.effective_user.username
             if not username:
                 await active.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, you need to set a Telegram username to use this bot. Please set a username in your Telegram settings and try again.")
-                processed_updates[update.update_id] = None
+                remember(update.update_id)
                 return {"status": "ok"}
             try:
                 whitelist_check = is_user_whitelisted or runtime["is_user_whitelisted"]
@@ -166,11 +177,9 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
                 raise HTTPException(500, "Unable to process update") from exc
             if not allowed:
                 await active.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, this bot is currently private and available only to whitelisted users. Please contact the bot owner (@chrxmium) if you need access.")
-                processed_updates[update.update_id] = None
+                remember(update.update_id)
                 return {"status": "ok"}
-        processed_updates[update.update_id] = None
-        if len(processed_updates) > MAX_PROCESSED_UPDATES:
-            processed_updates.popitem(last=False)
+        remember(update.update_id)
         application.state.last_update_time = time.time()
         background_tasks.add_task(process_update, update)
         return {"status": "ok"}

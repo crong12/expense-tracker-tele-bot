@@ -73,6 +73,21 @@ def test_explicit_settings_and_fake_never_call_production_loader(monkeypatch):
 
 
 @pytest.mark.smoke
+def test_explicit_factories_keep_settings_isolated_and_preserve_default_cache():
+    main = _main()
+    default = _settings(main.config)
+    main.config.install_settings(default)
+    a = main.config.Settings("1:AAA", "a", "a2", "au", "ap", "adb", "ah", "1111", "ao", "al", "aproject")
+    b = main.config.Settings("2:BBB", "b", "b2", "bu", "bp", "bdb", "bh", "2222", "bo", "bl", "bproject")
+    app_a = main.create_app(a, TelegramApplicationFake())
+    app_b = main.create_app(b, TelegramApplicationFake())
+    assert app_a.state.settings is a and app_b.state.settings is b
+    assert main._persistence_url(a) == "postgresql://au:ap@ah:1111/adb"
+    assert main._persistence_url(b) == "postgresql://bu:bp@bh:2222/bdb"
+    assert main.config.get_settings() is default
+
+
+@pytest.mark.smoke
 def test_injected_application_receives_handlers_in_registration_order():
     main = _main()
 
@@ -91,6 +106,17 @@ def test_injected_application_receives_handlers_in_registration_order():
         ["delete_expense_confirmation"], ["process_query", "button_click"],
         ["export_expenses"], ["handle_category_rule"]]
     assert len(telegram.errors) == 1
+
+
+@pytest.mark.smoke
+def test_reusing_injected_application_registers_fresh_handlers_per_factory():
+    main = _main()
+    telegram = TelegramApplicationFake()
+    main.create_app(telegram_application=telegram)
+    first = tuple(telegram.handlers)
+    main.create_app(telegram_application=telegram)
+    second = tuple(telegram.handlers[4:])
+    assert len(telegram.handlers) == 8 and all(a is not b for a, b in zip(first, second))
 
 
 @pytest.mark.smoke
@@ -169,6 +195,23 @@ async def test_failed_authorization_does_not_poison_duplicate_retry(monkeypatch)
         assert (await client.post("/", json={"update_id": 41})).status_code == 500
         assert (await client.post("/", json={"update_id": 41})).status_code == 200
     telegram.process_update.assert_awaited_once()
+
+
+@pytest.mark.smoke
+async def test_rejected_update_cache_is_bounded_and_evicts_oldest(monkeypatch):
+    main = _main()
+    telegram = TelegramApplicationFake()
+    application = main.create_app(telegram_application=telegram)
+    monkeypatch.setattr(main, "is_user_whitelisted", lambda _: False)
+    monkeypatch.setattr(main.Update, "de_json", lambda payload, _: SimpleNamespace(
+        update_id=payload["update_id"], effective_user=SimpleNamespace(username="blocked", id=7),
+        effective_chat=SimpleNamespace(id=9)))
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        for update_id in range(main.MAX_PROCESSED_UPDATES + 2):
+            assert (await client.post("/", json={"update_id": update_id})).status_code == 200
+    cache = application.state.processed_updates
+    assert len(cache) == main.MAX_PROCESSED_UPDATES
+    assert 0 not in cache and 1 not in cache and 2 in cache
 
 
 @pytest.mark.smoke

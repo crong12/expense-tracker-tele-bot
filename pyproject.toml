@@ -15,4 +15,4 @@ source = ["config", "database", "handlers", "main", "services", "utils"]
 relative_files = true
 
 [tool.coverage.report]
-fail_under = 92
+fail_under = 93
