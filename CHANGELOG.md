@@ -16,6 +16,7 @@ All notable changes to the bot will be documented here.
 ### Fixed
 - Made Telegram update processing concurrency-safe and expense insertion idempotent across retries.
 - Scoped expense matching and editing to the authenticated user.
+- Made CI path checks portable and prevented duplicate feature-branch workflow runs.
 
 <br/>
 

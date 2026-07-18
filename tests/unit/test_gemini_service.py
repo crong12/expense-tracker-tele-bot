@@ -101,8 +101,8 @@ def test_isolated_import_restores_exact_prior_module_registry():
     sys.modules["services.gemini_svc"] = prior_service
     try:
         with isolated_gemini_service() as service:
-            assert Path(service.__file__).resolve().name == "gemini_svc.py"
-            assert "comprehensive-test-suite" in str(Path(service.__file__).resolve())
+            expected_source = Path(__file__).parents[2] / "services" / "gemini_svc.py"
+            assert Path(service.__file__).resolve() == expected_source.resolve()
             assert sys.modules["config"] is not prior_config
             assert sys.modules["services.gemini_svc"] is service
         assert sys.modules["config"] is prior_config

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import socket
+from pathlib import Path
 
 import pytest
 from pytest_socket import SocketBlockedError
@@ -21,3 +22,10 @@ def test_default_network_policy_blocks_loopback_tcp():
 def test_default_network_policy_allows_asyncio_internal_socket_pair():
     loop = asyncio.new_event_loop()
     loop.close()
+
+
+def test_ci_runs_feature_branches_once_via_pull_requests():
+    workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "test.yml").read_text()
+
+    assert "push:\n    branches: [main]" in workflow
+    assert "pull_request:" in workflow
