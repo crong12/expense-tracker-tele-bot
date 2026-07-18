@@ -4,18 +4,23 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
-from config import PROJECT_ID, MODEL_NAME
+import config
+from config import MODEL_NAME
 from utils import get_current_date
 
 client = None
+_managed_clients = {}
 
 
 def _client():
     """Create credentials only when a Gemini request is actually made."""
     global client
-    if client is None:
-        client = genai.Client(vertexai=True, project=PROJECT_ID, location="global")
-    return client
+    if client is not None:
+        return client
+    project = config.get_settings().project_id if hasattr(config, "get_settings") else config.PROJECT_ID
+    if project not in _managed_clients:
+        _managed_clients[project] = genai.Client(vertexai=True, project=project, location="global")
+    return _managed_clients[project]
 
 expense_schema = {
     "type": "OBJECT",

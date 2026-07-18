@@ -13,20 +13,25 @@ from langgraph.graph.message import AnyMessage, add_messages
 from langgraph.types import StreamWriter
 from database import SessionLocal
 from utils import create_tool_node_with_fallback, get_current_date
+import config
 from config import OPENAI_API_KEY
 
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 # Single model for both query generation and answer formulation
 llm = None
+_managed_llms = {}
 
 
 def _llm():
     """Defer OpenAI construction until the analyst receives work."""
     global llm
-    if llm is None:
-        llm = ChatOpenAI(model="gpt-5.4-mini", reasoning_effort="low", use_responses_api=True, max_retries=3)
-    return llm
+    if llm is not None:
+        return llm
+    api_key = config.get_settings().openai_api_key if hasattr(config, "get_settings") else config.OPENAI_API_KEY
+    if api_key not in _managed_llms:
+        _managed_llms[api_key] = ChatOpenAI(model="gpt-5.4-mini", reasoning_effort="low", use_responses_api=True, max_retries=3, api_key=api_key)
+    return _managed_llms[api_key]
 
 class State(TypedDict):
     """Define the state for the agent"""

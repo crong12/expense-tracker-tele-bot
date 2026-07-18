@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
@@ -37,6 +38,9 @@ def _runtime(settings, persistence=True):
 
 
 def _persistence_url(settings):
+    explicit = os.environ.get("DATABASE_URL")
+    if explicit:
+        return explicit.replace("postgresql+psycopg2://", "postgresql://", 1)
     return f"postgresql://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
 
 
@@ -136,7 +140,8 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
 
     async def process_update(update):
         try:
-            await configure(application).process_update(update)
+            with config.settings_context(supplied_settings):
+                await configure(application).process_update(update)
         except Exception as exc:
             logging.error("Error processing update %s: %s", update.update_id, exc)
 
@@ -171,8 +176,9 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
                 remember(update.update_id)
                 return {"status": "ok"}
             try:
-                whitelist_check = is_user_whitelisted or runtime["is_user_whitelisted"]
-                allowed = await asyncio.to_thread(whitelist_check, username)
+                with config.settings_context(supplied_settings):
+                    whitelist_check = is_user_whitelisted or runtime["is_user_whitelisted"]
+                    allowed = await asyncio.to_thread(whitelist_check, username)
             except Exception as exc:
                 raise HTTPException(500, "Unable to process update") from exc
             if not allowed:

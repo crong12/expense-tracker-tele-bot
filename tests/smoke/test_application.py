@@ -73,8 +73,9 @@ def test_explicit_settings_and_fake_never_call_production_loader(monkeypatch):
 
 
 @pytest.mark.smoke
-def test_explicit_factories_keep_settings_isolated_and_preserve_default_cache():
+def test_explicit_factories_keep_settings_isolated_and_preserve_default_cache(monkeypatch):
     main = _main()
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     default = _settings(main.config)
     main.config.install_settings(default)
     a = main.config.Settings("1:AAA", "a", "a2", "au", "ap", "adb", "ah", "1111", "ao", "al", "aproject")
@@ -85,6 +86,32 @@ def test_explicit_factories_keep_settings_isolated_and_preserve_default_cache():
     assert main._persistence_url(a) == "postgresql://au:ap@ah:1111/adb"
     assert main._persistence_url(b) == "postgresql://bu:bp@bh:2222/bdb"
     assert main.config.get_settings() is default
+
+
+@pytest.mark.smoke
+def test_explicit_database_url_controls_ptb_persistence_url(monkeypatch):
+    main = _main()
+    settings = _settings(main.config)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg2://explicit:pw@db:5432/name")
+    assert main._persistence_url(settings) == "postgresql://explicit:pw@db:5432/name"
+
+
+@pytest.mark.smoke
+def test_lazy_service_clients_dispatch_by_each_apps_scoped_settings(monkeypatch):
+    main = _main()
+    from services import gemini_svc, sql_agent_svc
+    a = main.config.Settings("1:A", "a", "a", "u", "p", "d", "h", "1", "key-a", "l", "project-a")
+    b = main.config.Settings("2:B", "b", "b", "u", "p", "d", "h", "2", "key-b", "l", "project-b")
+    gemini_svc.client = None; gemini_svc._managed_clients.clear()
+    sql_agent_svc.llm = None; sql_agent_svc._managed_llms.clear()
+    monkeypatch.setattr(gemini_svc.genai, "Client", lambda **kwargs: ("gemini", kwargs["project"]))
+    monkeypatch.setattr(sql_agent_svc, "ChatOpenAI", lambda **kwargs: ("openai", kwargs["api_key"]))
+    with main.config.settings_context(a):
+        assert gemini_svc._client() == ("gemini", "project-a")
+        assert sql_agent_svc._llm() == ("openai", "key-a")
+    with main.config.settings_context(b):
+        assert gemini_svc._client() == ("gemini", "project-b")
+        assert sql_agent_svc._llm() == ("openai", "key-b")
 
 
 @pytest.mark.smoke
