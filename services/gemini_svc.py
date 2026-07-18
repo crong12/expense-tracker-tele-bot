@@ -1,6 +1,8 @@
+import json
+
 from google import genai
 from google.genai import types
-from tenacity import retry, wait_random_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 from config import PROJECT_ID, MODEL_NAME
 from utils import get_current_date
 
@@ -27,9 +29,48 @@ expense_config = types.GenerateContentConfig(
     response_schema=expense_schema,
 )
 
+
+class GeminiResponseError(ValueError):
+    """Raised when Gemini returns text that is not a JSON object."""
+
+
+def _validated_response_text(response) -> str:
+    text = getattr(response, "text", None)
+    if not isinstance(text, str) or not text.strip():
+        raise GeminiResponseError("Gemini response did not include JSON text")
+    try:
+        parsed = json.loads(text)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise GeminiResponseError("Gemini response text was not valid JSON") from error
+    if not isinstance(parsed, dict):
+        raise GeminiResponseError("Gemini response JSON must be an object")
+    return text
+
+
+def _should_retry_gemini_error(error: BaseException) -> bool:
+    return not isinstance(error, (GeminiResponseError, OSError))
+
+
+gemini_retry = retry(
+    wait=wait_random_exponential(multiplier=1, max=60),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception(_should_retry_gemini_error),
+    reraise=True,
+)
+
+
+def _detect_image_mime(data: bytes) -> str:
+    if data[:3] == b'\xff\xd8\xff':
+        return "image/jpeg"
+    if data[:4] == b'\x89PNG':
+        return "image/png"
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/jpeg"
+
 # function to call gemini to process expense text
 # implement exponential backoff for load handling
-@retry(wait=wait_random_exponential(multiplier=1, max=60))
+@gemini_retry
 async def process_expense_text(input_text: str, preferred_currency: str = "GBP", existing_categories: list = None, category_rules: list = None):
     """parses expense details from plain text input
     Args:
@@ -74,11 +115,11 @@ async def process_expense_text(input_text: str, preferred_currency: str = "GBP",
     response = await client.aio.models.generate_content(
         model=MODEL_NAME, contents=prompt, config=expense_config
     )
-    return response.text
+    return _validated_response_text(response)
 
 # function to call gemini to process expense (e.g. receipt) image
 # implement exponential backoff for load handling
-@retry(wait=wait_random_exponential(multiplier=1, max=60))
+@gemini_retry
 async def process_expense_image(image_path: str, caption: str="", preferred_currency: str = "GBP", existing_categories: list = None, category_rules: list = None):
     """parses expense details from image input
     Args:
@@ -130,15 +171,7 @@ async def process_expense_image(image_path: str, caption: str="", preferred_curr
     with open(image_path, "rb") as img_file:
         image_bytes = img_file.read()
 
-    # Detect MIME type from magic bytes instead of assuming PNG
-    if image_bytes[:3] == b'\xff\xd8\xff':
-        mime_type = "image/jpeg"
-    elif image_bytes[:4] == b'\x89PNG':
-        mime_type = "image/png"
-    elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
-        mime_type = "image/webp"
-    else:
-        mime_type = "image/jpeg"  # fallback — most common from Telegram
+    mime_type = _detect_image_mime(image_bytes)
 
     image_part = types.Part.from_bytes(
         mime_type=mime_type,
@@ -148,11 +181,11 @@ async def process_expense_image(image_path: str, caption: str="", preferred_curr
     response = await client.aio.models.generate_content(
         model=MODEL_NAME, contents=[image_part, prompt], config=expense_config
     )
-    return response.text
+    return _validated_response_text(response)
 
 # function to refine extracted expense details
 # implement exponential backoff for load handling
-@retry(wait=wait_random_exponential(multiplier=1, max=60))
+@gemini_retry
 async def refine_expense_details(original_details, user_feedback):
     """Refines the parsed expense details based on user corrections.
     Args:
@@ -173,4 +206,4 @@ async def refine_expense_details(original_details, user_feedback):
     response = await client.aio.models.generate_content(
         model=MODEL_NAME, contents=prompt, config=expense_config
     )
-    return response.text
+    return _validated_response_text(response)
