@@ -18,12 +18,15 @@ from config import OPENAI_API_KEY
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 # Single model for both query generation and answer formulation
-llm = ChatOpenAI(
-    model="gpt-5.4-mini",
-    reasoning_effort="low",
-    use_responses_api=True,
-    max_retries=3
-)
+llm = None
+
+
+def _llm():
+    """Defer OpenAI construction until the analyst receives work."""
+    global llm
+    if llm is None:
+        llm = ChatOpenAI(model="gpt-5.4-mini", reasoning_effort="low", use_responses_api=True, max_retries=3)
+    return llm
 
 class State(TypedDict):
     """Define the state for the agent"""
@@ -296,7 +299,7 @@ async def analyst_node(state: State, writer: StreamWriter):
         writer({"custom": "📝 Analysing query..."})
 
     prompt = analyst_prompt.partial(today=today, day=day)
-    chain = prompt | llm.bind_tools([db_query_tool, SubmitFinalAnswer])
+    chain = prompt | _llm().bind_tools([db_query_tool, SubmitFinalAnswer])
     message = await chain.ainvoke(state)
 
     # Strip trailing newline from final answer if present

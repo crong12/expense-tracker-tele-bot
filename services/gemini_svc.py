@@ -7,11 +7,15 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_
 from config import PROJECT_ID, MODEL_NAME
 from utils import get_current_date
 
-client = genai.Client(
-    vertexai=True,
-    project=PROJECT_ID,
-    location='global',
-)
+client = None
+
+
+def _client():
+    """Create credentials only when a Gemini request is actually made."""
+    global client
+    if client is None:
+        client = genai.Client(vertexai=True, project=PROJECT_ID, location="global")
+    return client
 
 expense_schema = {
     "type": "OBJECT",
@@ -117,7 +121,7 @@ async def process_expense_text(input_text: str, preferred_currency: str = "GBP",
     DATE (be extra careful if the user inputs terms like "last Tuesday" or "last Monday". Count backwards carefully to find the exact date from today's date).
     {rule_instruction}
     """
-    response = await client.aio.models.generate_content(
+    response = await _client().aio.models.generate_content(
         model=MODEL_NAME, contents=prompt, config=expense_config
     )
     return _validated_response_text(response)
@@ -183,7 +187,7 @@ async def process_expense_image(image_path: str, caption: str="", preferred_curr
         data=image_bytes,
     )
 
-    response = await client.aio.models.generate_content(
+    response = await _client().aio.models.generate_content(
         model=MODEL_NAME, contents=[image_part, prompt], config=expense_config
     )
     return _validated_response_text(response)
@@ -208,7 +212,7 @@ async def refine_expense_details(original_details, user_feedback):
     
     Please refine the expense details accordingly while keeping other details unchanged.
     """
-    response = await client.aio.models.generate_content(
+    response = await _client().aio.models.generate_content(
         model=MODEL_NAME, contents=prompt, config=expense_config
     )
     return _validated_response_text(response)

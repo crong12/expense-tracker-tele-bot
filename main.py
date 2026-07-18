@@ -1,258 +1,157 @@
-import os
-import logging
 import asyncio
+import logging
 import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, BackgroundTasks
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
+from telegram.error import NetworkError, TimedOut
+from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, ContextTypes,
+                          ConversationHandler, MessageHandler, filters)
 from telegram.request import HTTPXRequest
-from telegram.error import TimedOut, NetworkError
-from telegram.ext import ContextTypes
 from ptbcontrib.postgres_persistence import PostgresPersistence
-from handlers import start, process_insert, process_edit, button_click, \
-    reject_unexpected_messages, refine_details, handle_confirmation, quit_bot,\
-    process_delete, delete_expense_confirmation, process_query, export_expenses, \
-    handle_category_rule
+
+from config import (AWAITING_CATEGORY_RULE, AWAITING_CONFIRMATION, AWAITING_DELETE_CONFIRMATION,
+                    AWAITING_DELETE_REQUEST, AWAITING_EDIT, AWAITING_EXPORT_CONFIRMATION,
+                    AWAITING_QUERY, AWAITING_REFINEMENT, BOT_TOKEN, Settings,
+                    WAITING_FOR_EXPENSE, load_settings)
+from handlers import (button_click, delete_expense_confirmation, export_expenses, handle_category_rule,
+                      handle_confirmation, process_delete, process_edit, process_insert, process_query,
+                      quit_bot, refine_details, reject_unexpected_messages, start)
 from services import is_user_whitelisted
-from config import BOT_TOKEN, LANGSMITH_API_KEY, WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, \
-    AWAITING_REFINEMENT, AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, \
-    AWAITING_QUERY, AWAITING_EXPORT_CONFIRMATION, AWAITING_CATEGORY_RULE
 from database import PERSISTENCE_URL
 
-# enable langsmith tracing
-os.environ["LANGSMITH_TRACING"] = "true"
-os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
-os.environ["LANGSMITH_PROJECT"] = "expense-bot-deployed"
-os.environ["LANGSMITH_API_KEY"] = LANGSMITH_API_KEY
+MAX_PROCESSED_UPDATES = 1000
+INACTIVITY_THRESHOLD = 600
 
-# Set up logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
 
-# Create the bot application with PostgreSQL persistence 
-# and set connect/read/write/pool timeout durations
-persistence = PostgresPersistence(
-    url=PERSISTENCE_URL,
-    on_flush=True
-)
-request = HTTPXRequest(
-    connect_timeout=20.0,
-    read_timeout=30.0,
-    write_timeout=30.0,
-    pool_timeout=5.0,
-)
-bot_app = Application.builder().token(BOT_TOKEN).persistence(persistence).request(request).build()
+def _telegram_application(settings):
+    persistence = PostgresPersistence(url=PERSISTENCE_URL, on_flush=True)
+    request = HTTPXRequest(connect_timeout=20.0, read_timeout=30.0, write_timeout=30.0, pool_timeout=5.0)
+    return Application.builder().token(settings.bot_token).persistence(persistence).request(request).build()
 
-# Track processed update IDs to prevent duplicate processing from Telegram retries
-# OrderedDict preserves insertion order so we evict the oldest entry (not arbitrary)
-processed_updates = OrderedDict()
-MAX_PROCESSED_UPDATES = 1000  # Keep last 1000 to prevent memory issues
 
-# Track the periodic flush task and last update time
-flush_task = None
-last_update_time = None
-INACTIVITY_THRESHOLD = 600  # 10 minutes in seconds
+def _conversation_handler():
+    return ConversationHandler(
+        entry_points=[CommandHandler("start", start), CallbackQueryHandler(button_click)],
+        states={
+            WAITING_FOR_EXPENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_insert), MessageHandler(filters.PHOTO & ~filters.COMMAND, process_insert), CallbackQueryHandler(button_click)],
+            AWAITING_CONFIRMATION: [CallbackQueryHandler(handle_confirmation)],
+            AWAITING_REFINEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, refine_details)],
+            AWAITING_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit), CallbackQueryHandler(button_click)],
+            AWAITING_DELETE_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_delete)],
+            AWAITING_DELETE_CONFIRMATION: [CallbackQueryHandler(delete_expense_confirmation)],
+            AWAITING_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_query), CallbackQueryHandler(button_click)],
+            AWAITING_EXPORT_CONFIRMATION: [CallbackQueryHandler(export_expenses)],
+            AWAITING_CATEGORY_RULE: [CallbackQueryHandler(handle_category_rule)],
+        }, fallbacks=[CommandHandler("start", start), CommandHandler("quit", quit_bot)],
+        name="expense_conversation", persistent=True)
 
-# Define conversation handler with persistence enabled
-conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start), CallbackQueryHandler(button_click)],
-    states={
-        WAITING_FOR_EXPENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_insert),
-                              MessageHandler(filters.PHOTO & ~filters.COMMAND, process_insert),
-                              CallbackQueryHandler(button_click)],
-        AWAITING_CONFIRMATION: [CallbackQueryHandler(handle_confirmation)],
-        AWAITING_REFINEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, refine_details)],
-        AWAITING_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit),
-                        CallbackQueryHandler(button_click)],
-        AWAITING_DELETE_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_delete)],
-        AWAITING_DELETE_CONFIRMATION: [CallbackQueryHandler(delete_expense_confirmation)],
-        AWAITING_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_query),
-                         CallbackQueryHandler(button_click)],
-        AWAITING_EXPORT_CONFIRMATION: [CallbackQueryHandler(export_expenses)],
-        AWAITING_CATEGORY_RULE: [CallbackQueryHandler(handle_category_rule)]
-    },
-    fallbacks=[CommandHandler("start", start), CommandHandler("quit", quit_bot)],
-    name="expense_conversation",  # Unique name for this conversation
-    persistent=True,  # Enable persistence for this conversation
-)
 
-# Periodic flush function
-async def periodic_flush():
-    """Periodically flush persistence to database (every 60 seconds) if there's been recent activity"""
-    while True:
-        try:
-            await asyncio.sleep(60)  # Wait 60 seconds
-            
-            if bot_app.persistence and last_update_time is not None:
-                # Check if there's been activity in the last 10 minutes
-                time_since_last_update = time.time() - last_update_time
-                
-                if time_since_last_update < INACTIVITY_THRESHOLD:
-                    # Recent activity detected, perform flush
-                    await bot_app.persistence.flush()
-                    logging.info("Persistence flushed successfully (last update %.1f seconds ago)", 
-                                time_since_last_update)
-                else:
-                    # No recent activity, skip flush to save resources
-                    logging.debug("Skipping flush due to inactivity (last update %.1f seconds ago)", 
-                                 time_since_last_update)
-                    
-        except asyncio.CancelledError:
-            logging.info("Periodic flush task cancelled")
-            break
-        except Exception as e:  # pylint: disable=broad-except
-            logging.error("Error during periodic flush: %s", str(e))
-
-# Define error handler for bot application
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Error handler for bot application"""
-    err = context.error
-    if isinstance(err, TimedOut):
-        logging.warning("Telegram request timed out; continuing.")
+    if isinstance(context.error, (TimedOut, NetworkError)):
+        logging.warning("Telegram transient error: %s", context.error)
         return
-    if isinstance(err, NetworkError):
-        logging.warning("Transient network error: %s", err)
-        return
-    logging.exception("Unhandled error while processing update: %s", err)
+    logging.exception("Unhandled error while processing update: %s", context.error)
 
-bot_app.add_handler(conv_handler)
-bot_app.add_handler(MessageHandler(filters.TEXT, reject_unexpected_messages))
-bot_app.add_handler(CommandHandler("start", start))
-bot_app.add_handler(CommandHandler("quit", quit_bot))
-bot_app.add_error_handler(error_handler)
 
-# Define the lifespan context manager
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global flush_task  # pylint: disable=global-statement
-    
-    # Startup: Initialize and start the bot
-    try:
-        await bot_app.initialize()
-        await bot_app.start()
-        logging.info("Bot has started successfully with persistence enabled.")
+def create_app(settings: Settings | None = None, telegram_application=None) -> FastAPI:
+    settings = settings or load_settings()
+    bot_app = telegram_application
+    processed_updates = OrderedDict()
 
-        # Log persistence status
-        if bot_app.persistence:
-            logging.info("PostgreSQL persistence is active")
-        else:
-            logging.warning("No persistence configured!")
+    def configure_telegram(application):
+        nonlocal bot_app
+        if bot_app is None:
+            bot_app = _telegram_application(settings)
+            application.state.telegram_application = bot_app
+        if not getattr(bot_app, "_expense_handlers_registered", False):
+            bot_app.add_handler(_conversation_handler())
+            bot_app.add_handler(MessageHandler(filters.TEXT, reject_unexpected_messages))
+            bot_app.add_handler(CommandHandler("start", start))
+            bot_app.add_handler(CommandHandler("quit", quit_bot))
+            bot_app.add_error_handler(error_handler)
+            setattr(bot_app, "_expense_handlers_registered", True)
+        return bot_app
 
-        # Start periodic flush task
-        flush_task = asyncio.create_task(periodic_flush())
-        logging.info("Periodic flush task started (flushes every 60 seconds)")
-
-    except Exception as e: # pylint: disable=broad-except
-        logging.error("Error starting bot: %s", str(e))
-        raise
-
-    yield
-
-    # Shutdown: Stop the bot
-    try:
-        # Cancel periodic flush task
-        if flush_task:
-            flush_task.cancel()
+    @asynccontextmanager
+    async def lifespan(application):
+        active_bot = configure_telegram(application)
+        application.state.flush_task = None
+        await active_bot.initialize()
+        await active_bot.start()
+        async def periodic_flush():
+            while True:
+                try:
+                    await asyncio.sleep(60)
+                    if active_bot.persistence and application.state.last_update_time and time.time() - application.state.last_update_time < INACTIVITY_THRESHOLD:
+                        await active_bot.persistence.flush()
+                except asyncio.CancelledError:
+                    break
+                except Exception as exc:  # pragma: no cover - logging boundary
+                    logging.error("Error during periodic flush: %s", exc)
+        application.state.flush_task = asyncio.create_task(periodic_flush())
+        try:
+            yield
+        finally:
+            application.state.flush_task.cancel()
             try:
-                await flush_task
+                await application.state.flush_task
             except asyncio.CancelledError:
                 pass
-            logging.info("Periodic flush task stopped")
+            if active_bot.persistence:
+                await active_bot.persistence.flush()
+            await active_bot.stop()
 
-        # Final flush before shutdown (ensure any pending data is saved)
-        if bot_app.persistence:
-            await bot_app.persistence.flush()
-            logging.info("Final persistence flush completed")
-        
-        await bot_app.stop()
-        logging.info("Bot has shut down.")
-    except Exception as e: # pylint: disable=broad-except
-        logging.error("Error stopping bot: %s", str(e))
+    application = FastAPI(lifespan=lifespan)
+    application.state.telegram_application = bot_app
+    application.state.processed_updates = processed_updates
+    application.state.last_update_time = None
+    if bot_app is not None:
+        configure_telegram(application)
 
-# Initialize FastAPI app with the lifespan context manager
-app = FastAPI(lifespan=lifespan)
+    @application.get("/")
+    async def root():
+        return {"status": "Bot is running!"}
 
-# Webhook health check endpoint
-@app.get("/")
-async def root():
-    return {"status": "Bot is running!"}
+    async def process_telegram_update(update):
+        try:
+            await configure_telegram(application).process_update(update)
+        except Exception as exc:  # background errors must not revoke an acknowledged webhook
+            logging.error("Error processing update %s: %s", update.update_id, exc)
 
-
-async def process_telegram_update(update: Update):
-    """Process telegram update in background"""
-    try:
-        await bot_app.process_update(update)
-        logging.info("Successfully processed update %d", update.update_id)
-    except Exception as e:
-        logging.error("Error processing update %d: %s", update.update_id, str(e))
-
-
-# Webhook endpoint for Telegram updates
-@app.post("/")
-async def webhook(request: Request, background_tasks: BackgroundTasks):
-    """Handles webhook updates from Telegram"""
-    global last_update_time  # pylint: disable=global-statement
-    
-    try:
-        update_dict = await request.json()
-        logging.info("Received update: %s", update_dict)
-
-        update = Update.de_json(update_dict, bot_app.bot)
-
-        # Check for duplicate updates to prevent reprocessing from Telegram retries
-        update_id = update.update_id
-        if update_id in processed_updates:
-            logging.warning("Duplicate update %d detected, skipping", update_id)
+    @application.post("/")
+    async def webhook(request: Request, background_tasks: BackgroundTasks):
+        try:
+            update_dict = await request.json()
+            active_bot = configure_telegram(application)
+            update = Update.de_json(update_dict, active_bot.bot)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid Telegram update") from exc
+        if not update or update.update_id is None:
+            raise HTTPException(status_code=400, detail="Invalid Telegram update")
+        if update.update_id in processed_updates:
             return {"status": "ok"}
-
-        # Track this update and update last activity time
-        processed_updates[update_id] = None
-        last_update_time = time.time()  # Record time of this update
-        # Evict oldest entry to prevent unbounded growth
+        processed_updates[update.update_id] = None
         if len(processed_updates) > MAX_PROCESSED_UPDATES:
             processed_updates.popitem(last=False)
-
-        # Defense in depth: Check whitelist before processing any update
-        if update and update.effective_user:
+        application.state.last_update_time = time.time()
+        if update.effective_user:
             username = update.effective_user.username
-
-            # Check if user has no username set
             if not username:
-                await bot_app.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Sorry, you need to set a Telegram username to use this bot. "
-                         "Please set a username in your Telegram settings and try again."
-                )
+                await active_bot.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, you need to set a Telegram username to use this bot. Please set a username in your Telegram settings and try again.")
                 return {"status": "ok"}
-
-            # Check if user is whitelisted (run in thread to avoid blocking event loop)
-            if not await asyncio.to_thread(is_user_whitelisted, username):
-                logging.warning(
-                    "Unauthorized access attempt by user: @%s (ID: %s)",
-                    username,
-                    update.effective_user.id
-                )
-                # Send rejection message
-                await bot_app.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Sorry, this bot is currently private and available only to whitelisted users. "
-                         "Please contact the bot owner (@chrxmium) if you need access."
-                )
-                # Return ok to Telegram but don't process the update further
+            try:
+                allowed = await asyncio.to_thread(is_user_whitelisted, username)
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail="Unable to process update") from exc
+            if not allowed:
+                await active_bot.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, this bot is currently private and available only to whitelisted users. Please contact the bot owner (@chrxmium) if you need access.")
                 return {"status": "ok"}
-
-        # Add to background tasks and return immediately to prevent Telegram timeout retries
         background_tasks.add_task(process_telegram_update, update)
         return {"status": "ok"}
+    return application
 
-    except (Exception) as e: # pylint: disable=broad-except
-        logging.error("Error processing update: %s", str(e))
-        return {"status": "error", "message": str(e)}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8080)
+app = create_app()

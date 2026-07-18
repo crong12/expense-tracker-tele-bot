@@ -11,4 +11,8 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["config", "database", "handlers", "services", "utils"]
+source = ["config", "database", "handlers", "main", "services", "utils"]
+relative_files = true
+
+[tool.coverage.report]
+fail_under = 77
