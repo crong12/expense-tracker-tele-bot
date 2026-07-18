@@ -1,6 +1,8 @@
 import json
 import os
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Annotated, Any, Literal
 from sqlalchemy.sql import text
 from langchain_core.tools import tool
@@ -41,6 +43,35 @@ class State(TypedDict):
 # Tools #
 
 _REJECTED_QUERY = "Query rejected: only a single read-only SELECT statement is allowed."
+_NO_TENANT_CONTEXT = "Query rejected: no authenticated tenant context."
+_REJECTED_TENANT_QUERY = "Query rejected: query may only access the tenant-scoped expenses relation."
+_tenant_user_id = ContextVar("expense_tracker_tenant_user_id", default=None)
+
+
+@contextmanager
+def tenant_context(user_id):
+    """Bind a verified user id for database tools during one analytics request."""
+    token = _tenant_user_id.set(user_id)
+    try:
+        yield
+    finally:
+        _tenant_user_id.reset(token)
+
+
+def _uses_only_expenses_relation(query: str) -> bool:
+    """Allow only an unqualified expenses relation; the injected CTE scopes it."""
+    masked = _mask_sql_literals_and_comments(query)
+    if not masked or re.match(r"^\s*WITH\b", masked, flags=re.IGNORECASE):
+        return False
+    relations = re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)?)", masked, flags=re.IGNORECASE)
+    if not relations:
+        return bool(re.match(r"^\s*SELECT\s+(?:\d+|NULL|TRUE|FALSE)(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?(?:\s+WHERE\s+(?:TRUE|FALSE))?\s*$", masked, flags=re.IGNORECASE))
+    return all(relation.lower() == "expenses" for relation in relations)
+
+
+def _tenant_scoped_query(query: str) -> str:
+    """Shadow the only permitted table with an authenticated, parameterized CTE."""
+    return "WITH expenses AS (SELECT id, user_id, price, category, description, date, currency FROM expenses WHERE user_id = :tenant_user_id) " + query
 
 
 def _mask_sql_literals_and_comments(query: str) -> str:
@@ -185,12 +216,17 @@ def db_query_tool(query: Any) -> str:
     """
     if not _is_read_only_query(query):
         return _REJECTED_QUERY
+    user_id = _tenant_user_id.get()
+    if user_id is None:
+        return _NO_TENANT_CONTEXT
+    if not _uses_only_expenses_relation(query):
+        return _REJECTED_TENANT_QUERY
 
     session = None
     try:
         session = SessionLocal()
         session.connection(execution_options={"postgresql_readonly": True})
-        result = session.execute(text(query))
+        result = session.execute(text(_tenant_scoped_query(query)), {"tenant_user_id": user_id})
         results_as_dict = result.mappings().all()
 
         if results_as_dict:

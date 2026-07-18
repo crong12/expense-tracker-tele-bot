@@ -96,12 +96,12 @@ def insert_expense(user_id, price, category, description, date, currency):
     finally:
         session.close()
 
-def update_expense(expense_id, price, category, description, date, currency):
+def update_expense(user_id, expense_id, price, category, description, date, currency):
     """updates an existing expense record in the database"""
     session = SessionLocal()
     try:
         expense = session.query(Expenses)\
-            .filter(Expenses.id == expense_id).first()
+            .filter(Expenses.user_id == user_id, Expenses.id == expense_id).first()
         if expense is None:
             return False
 
@@ -193,7 +193,7 @@ def export_expenses_to_csv(
     finally:
         session.close()
 
-def exact_expense_matching(expense_text):
+def exact_expense_matching(user_id, expense_text):
     """Find an expense in the database by matching its details."""
     session = SessionLocal()
     try:
@@ -211,6 +211,7 @@ def exact_expense_matching(expense_text):
         date_obj = datetime.strptime(expense_date, "%Y-%m-%d").date()
 
         matches = session.query(Expenses).filter(
+            Expenses.user_id == user_id,
             Expenses.price == float(amount),
             Expenses.category == category,
             Expenses.description == description,

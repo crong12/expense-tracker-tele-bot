@@ -252,7 +252,7 @@ async def test_edit_confirmation_handles_service_result_and_cleans_edit_context(
     result = await expenses_handler.handle_confirmation(scenario.update, scenario.context)
 
     assert result == WAITING_FOR_EXPENSE
-    update.assert_called_once_with(expense_id=12, **EXPENSE)
+    update.assert_called_once_with(user_id="user-1", expense_id=12, **EXPENSE)
     assert any(expected in call.args[1] for call in scenario.bot.send_message.await_args_list)
     assert "is_editing" not in scenario.context.user_data
     assert "editing_expense_id" not in scenario.context.user_data
@@ -361,9 +361,10 @@ async def test_edit_fallback_no_match_and_refinement_failures_are_safe(monkeypat
     scenario = TelegramScenario(text="change", reply_to_text=source)
     matcher = MagicMock(return_value=None)
     monkeypatch.setattr(expenses_handler, "exact_expense_matching", matcher)
+    monkeypatch.setattr(expenses_handler, "get_or_create_user", MagicMock(return_value="user-1"))
     result = await expenses_handler.process_edit(scenario.update, scenario.context)
     assert result == AWAITING_EDIT
-    matcher.assert_called_once_with(source)
+    matcher.assert_called_once_with("user-1", source)
     assert scenario.message.reply_text.await_args_list[0].args[0] == "⏱️ Trying to find the expense in the database..."
     assert scenario.message.reply_text.await_args_list[-1].args[0] == "⚠️ Sorry, I couldn't find the expense in the database. Please try again."
 
@@ -389,11 +390,12 @@ async def test_specific_delete_falls_back_to_matching_and_stores_only_selected_i
     scenario = TelegramScenario(text="delete this", reply_to_text="details without id")
     matcher = MagicMock(return_value=55)
     monkeypatch.setattr(expenses_handler, "exact_expense_matching", matcher)
+    monkeypatch.setattr(expenses_handler, "get_or_create_user", MagicMock(return_value="user-1"))
 
     result = await expenses_handler.process_delete(scenario.update, scenario.context)
 
     assert result == AWAITING_DELETE_CONFIRMATION
-    matcher.assert_called_once_with("details without id")
+    matcher.assert_called_once_with("user-1", "details without id")
     assert scenario.context.user_data["specific_or_all"] == "specific"
     assert scenario.context.user_data["expense_id"] == 55
 
@@ -527,8 +529,9 @@ async def test_query_builds_user_scoped_prompt_streams_progress_and_saves_final_
 
     assert result == AWAITING_QUERY
     prompt = agent.astream.call_args.args[0]["messages"][0][1]
-    for required in ("uuid-1", "ONLY query rows", "Food", "2026-07-18", "Saturday", "How much did I spend?", "previous answer"):
+    for required in ("Food", "2026-07-18", "Saturday", "How much did I spend?", "previous answer"):
         assert required in prompt
+    assert "uuid-1" not in prompt and "ONLY query rows" not in prompt
     scenario.bot.edit_message_text.assert_awaited_once_with("Looking up expenses", chat_id=202, message_id=88)
     scenario.bot.delete_message.assert_awaited_once_with(chat_id=202, message_id=88)
     assert scenario.context.user_data["expense_analysis"] == "You spent £12.50"

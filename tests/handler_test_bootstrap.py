@@ -2,6 +2,7 @@
 
 import sys
 import types
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -83,4 +84,4 @@ def ensure_focused_handler_dependencies(reset=False):
             insert_category_rule=MagicMock(),
         )
     if "services.sql_agent_svc" not in sys.modules:
-        install("services.sql_agent_svc", analyser_agent=MagicMock())
+        install("services.sql_agent_svc", analyser_agent=MagicMock(), tenant_context=nullcontext)

@@ -12,7 +12,7 @@ from services.gemini_svc import process_expense_text, process_expense_image, ref
 from services.expenses_svc import insert_expense, update_expense, get_or_create_user, \
     exact_expense_matching, delete_all_expenses, delete_specific_expense, get_categories, \
     get_user_preferred_currency, set_user_preferred_currency, get_category_rules, insert_category_rule
-from services.sql_agent_svc import analyser_agent
+from services.sql_agent_svc import analyser_agent, tenant_context
 from utils import str_to_json, get_current_date
 from config import WAITING_FOR_EXPENSE, AWAITING_CONFIRMATION, AWAITING_REFINEMENT, \
     AWAITING_EDIT, AWAITING_DELETE_REQUEST, AWAITING_DELETE_CONFIRMATION, AWAITING_QUERY, \
@@ -148,6 +148,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await context.bot.send_message(chat_id, "⚠️ There was an issue processing your request. Please try again.")
                     return WAITING_FOR_EXPENSE
                 expense_id = update_expense(
+                    user_id=user_id,
                     expense_id=expense_id_for_edit,
                     price=parsed_expense['price'],
                     category=parsed_expense['category'],
@@ -284,6 +285,7 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles user response for editing an expense."""
 
     user_feedback = update.message.text
+    user_id = context.user_data.get("user_id") or get_or_create_user(update.effective_user.id)
 
     if not update.message.reply_to_message:
         await update.message.reply_text("⚠️ Please reply to a bot message that contains expense details.")
@@ -299,7 +301,7 @@ async def process_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if match:
         expense_id = int(match.group(1))
     else:
-        expense_id = exact_expense_matching(original_text)      # extract expense ID using exact details in database
+        expense_id = exact_expense_matching(user_id, original_text)      # extract expense ID using exact details in database
 
     if not expense_id:
         await update.message.reply_text("⚠️ Sorry, I couldn't find the expense in the database. Please try again.")
@@ -350,6 +352,7 @@ async def process_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles user response for deleting an expense (or all of them)."""
 
     user_delete_request = update.message.text
+    user_id = context.user_data.get("user_id") or get_or_create_user(update.effective_user.id)
 
     if 'all' in user_delete_request.lower():
         # user confirmation step
@@ -376,7 +379,7 @@ async def process_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if match:
         expense_id = int(match.group(1))
     else:
-        expense_id = exact_expense_matching(original_text)      # extract expense ID using exact details in database
+        expense_id = exact_expense_matching(user_id, original_text)      # extract expense ID using exact details in database
 
     if not expense_id:
         await update.message.reply_text("⚠️ Sorry, I couldn't find the expense in the database. Please try again.")
@@ -441,8 +444,6 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = f"""
     The user's query is: {user_query}.
     
-    The user's UUID is {user_id}. ONLY query rows that belong to the user.
-    
     Previous answer you provided: {previous_answer}.
     Today's date is {today}. Today is {day}. Infer the date requested by the user based on today's date and previous answer.
     
@@ -464,37 +465,37 @@ async def process_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # Set up the stream handler
-        async for chunk in analyser_agent.astream(
-            {"messages": [("user", prompt)]},
-            stream_mode=["updates", "custom"]
-            ):
+        with tenant_context(user_id):
+            async for chunk in analyser_agent.astream(
+                {"messages": [("user", prompt)]},
+                stream_mode=["updates", "custom"]
+                ):
 
-            if isinstance(chunk, tuple) and chunk[0] == 'custom':
+                if isinstance(chunk, tuple) and chunk[0] == 'custom':
                 # extract custom progress report message to be sent to user
-                message_to_send = chunk[1].get('custom', 'Processing...')
+                    message_to_send = chunk[1].get('custom', 'Processing...')
 
-                if message_to_send != last_text:
-                    now = time.time()
-                else:
-                    now = last_sent_ts
-                if (message_to_send != last_text) and (now - last_sent_ts > 1.5):
-                    try:
-                        await context.bot.edit_message_text(
-                            message_to_send,
-                            chat_id=chat_id,
-                            message_id=processing_msg.message_id
-                        )
-                        last_text = message_to_send
-                        last_sent_ts = now
-                    except (TimedOut, NetworkError):
-                        # Ignore transient network issues and continue streaming
-                        pass
+                    if message_to_send != last_text:
+                        now = time.time()
+                    else:
+                        now = last_sent_ts
+                    if (message_to_send != last_text) and (now - last_sent_ts > 1.5):
+                        try:
+                            await context.bot.edit_message_text(
+                                message_to_send,
+                                chat_id=chat_id,
+                                message_id=processing_msg.message_id
+                            )
+                            last_text = message_to_send
+                            last_sent_ts = now
+                        except (TimedOut, NetworkError):
+                            pass
 
-            if isinstance(chunk, tuple) and 'analyst' in chunk[1]:
+                if isinstance(chunk, tuple) and 'analyst' in chunk[1]:
                 # extract final answer from analyst node when SubmitFinalAnswer is called
-                last_msg = chunk[1]['analyst']['messages'][-1]
-                if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls and last_msg.tool_calls[0]["name"] == "SubmitFinalAnswer":
-                    final_answer = last_msg.tool_calls[0]["args"]["final_answer"]
+                    last_msg = chunk[1]['analyst']['messages'][-1]
+                    if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls and last_msg.tool_calls[0]["name"] == "SubmitFinalAnswer":
+                        final_answer = last_msg.tool_calls[0]["args"]["final_answer"]
 
         # loop has ended, delete progress report message
         try:

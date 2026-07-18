@@ -128,6 +128,25 @@ def test_rejected_query_never_constructs_a_session(sql_agent):
     assert calls == 0
 
 
+def test_query_requires_authenticated_tenant_context(sql_agent):
+    calls = []
+    sql_agent.SessionLocal = lambda: calls.append(True)
+    assert query(sql_agent, "SELECT * FROM expenses") == "Query rejected: no authenticated tenant context."
+    assert calls == []
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM users", "SELECT * FROM public.expenses", "SELECT * FROM generate_series(1, 2)",
+    "SELECT pg_read_file('postgresql.conf')", "SELECT current_setting('data_directory')",
+])
+def test_tenant_tool_rejects_non_expense_and_relation_free_bypasses(sql_agent, sql):
+    calls = []
+    sql_agent.SessionLocal = lambda: calls.append(True)
+    with sql_agent.tenant_context("tenant-1"):
+        assert query(sql_agent, sql) == "Query rejected: query may only access the tenant-scoped expenses relation."
+    assert calls == []
+
+
 @pytest.mark.parametrize("value", [None, 42, ["SELECT 1"], {"query": "SELECT 1"}])
 def test_public_tool_rejects_non_string_values_without_constructing_session(sql_agent, value):
     calls = []
@@ -140,59 +159,66 @@ def test_query_serializes_mapping_rows_and_closes_session(sql_agent):
     result = SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [{"amount": Decimal("12.50"), "day": date(2026, 7, 18)}]))
     session = SimpleNamespace(execute=lambda statement: result, close=lambda: None, rollback=lambda: None)
     executed, connection_options, closed, rolled_back = [], [], [], []
-    session.execute = lambda statement: (executed.append(statement), result)[1]
+    session.execute = lambda statement, parameters: (executed.append((statement, parameters)), result)[1]
     session.connection = lambda **kwargs: connection_options.append(kwargs)
     session.close = lambda: closed.append(True)
     session.rollback = lambda: rolled_back.append(True)
     sql_agent.SessionLocal = lambda: session
-    assert query(sql_agent, "SELECT amount, day FROM expenses") == '[{"amount": "12.50", "day": "2026-07-18"}]'
-    assert all(isinstance(statement, TextClause) for statement in executed)
-    assert [str(statement) for statement in executed] == ["SELECT amount, day FROM expenses"]
+    with sql_agent.tenant_context("tenant-1"):
+        assert query(sql_agent, "SELECT amount, day FROM expenses") == '[{"amount": "12.50", "day": "2026-07-18"}]'
+    assert all(isinstance(statement, TextClause) for statement, _ in executed)
+    assert [str(statement) for statement, _ in executed] == ["WITH expenses AS (SELECT id, user_id, price, category, description, date, currency FROM expenses WHERE user_id = :tenant_user_id) SELECT amount, day FROM expenses"]
+    assert [parameters for _, parameters in executed] == [{"tenant_user_id": "tenant-1"}]
     assert connection_options == [{"execution_options": {"postgresql_readonly": True}}]
     assert closed == [True] and not rolled_back
 
 
 def test_empty_result_closes_without_rollback(sql_agent):
-    session = SimpleNamespace(execute=lambda _: SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [])))
+    session = SimpleNamespace(execute=lambda *_: SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [])))
     session.connection = lambda **_: None
     closed, rolled_back = [], []
     session.close = lambda: closed.append(True)
     session.rollback = lambda: rolled_back.append(True)
     sql_agent.SessionLocal = lambda: session
-    assert query(sql_agent, "SELECT 1 WHERE false") == "Query executed successfully, but no results were returned."
+    with sql_agent.tenant_context("tenant-1"):
+        assert query(sql_agent, "SELECT 1 WHERE false") == "Query executed successfully, but no results were returned."
     assert closed == [True] and not rolled_back
 
 
 def test_query_exception_rolls_back_and_closes_once(sql_agent):
-    session = SimpleNamespace(execute=lambda _: (_ for _ in ()).throw(RuntimeError("broken")))
+    session = SimpleNamespace(execute=lambda *_: (_ for _ in ()).throw(RuntimeError("broken")))
     session.connection = lambda **_: None
     rolled_back, closed = [], []
     session.rollback = lambda: rolled_back.append(True)
     session.close = lambda: closed.append(True)
     sql_agent.SessionLocal = lambda: session
-    assert query(sql_agent, "SELECT 1") == "Database error: broken"
+    with sql_agent.tenant_context("tenant-1"):
+        assert query(sql_agent, "SELECT 1") == "Database error: broken"
     assert rolled_back == [True] and closed == [True]
 
 
 def test_cleanup_exceptions_do_not_replace_database_error_or_success_response(sql_agent):
-    failing = SimpleNamespace(execute=lambda _: (_ for _ in ()).throw(RuntimeError("broken")))
+    failing = SimpleNamespace(execute=lambda *_: (_ for _ in ()).throw(RuntimeError("broken")))
     failing.connection = lambda **_: None
     failing.rollback = lambda: (_ for _ in ()).throw(RuntimeError("rollback failed"))
     failing.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
     sql_agent.SessionLocal = lambda: failing
-    assert query(sql_agent, "SELECT 1") == "Database error: broken"
+    with sql_agent.tenant_context("tenant-1"):
+        assert query(sql_agent, "SELECT 1") == "Database error: broken"
 
-    successful = SimpleNamespace(execute=lambda _: SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [])))
+    successful = SimpleNamespace(execute=lambda *_: SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [])))
     successful.connection = lambda **_: None
     successful.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
     successful.rollback = lambda: None
     sql_agent.SessionLocal = lambda: successful
-    assert query(sql_agent, "SELECT 1") == "Query executed successfully, but no results were returned."
+    with sql_agent.tenant_context("tenant-1"):
+        assert query(sql_agent, "SELECT 1") == "Query executed successfully, but no results were returned."
 
 
 def test_session_construction_error_returns_database_error(sql_agent):
     sql_agent.SessionLocal = lambda: (_ for _ in ()).throw(RuntimeError("unavailable"))
-    assert query(sql_agent, "SELECT 1") == "Database error: unavailable"
+    with sql_agent.tenant_context("tenant-1"):
+        assert query(sql_agent, "SELECT 1") == "Database error: unavailable"
 
 
 def test_read_only_connection_option_failure_rolls_back_and_closes_without_executing_query(sql_agent):
@@ -204,7 +230,8 @@ def test_read_only_connection_option_failure_rolls_back_and_closes_without_execu
         close=lambda: closed.append(True),
     )
     sql_agent.SessionLocal = lambda: session
-    assert query(sql_agent, "SELECT 1") == "Database error: read-only setup failed"
+    with sql_agent.tenant_context("tenant-1"):
+        assert query(sql_agent, "SELECT 1") == "Database error: read-only setup failed"
     assert executed == []
     assert rolled_back == [True] and closed == [True]
 

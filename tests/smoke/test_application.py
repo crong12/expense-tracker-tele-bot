@@ -165,6 +165,52 @@ async def test_webhook_processes_one_valid_update_and_suppresses_duplicates(monk
 
 
 @pytest.mark.smoke
+async def test_webhook_concurrent_duplicates_reserve_one_background_task(monkeypatch):
+    main = _main()
+    telegram = TelegramApplicationFake()
+    started, release = __import__("asyncio").Event(), __import__("asyncio").Event()
+    async def process(_):
+        started.set()
+        await release.wait()
+    telegram.process_update.side_effect = process
+    application = main.create_app(telegram_application=telegram)
+    monkeypatch.setattr(main, "is_user_whitelisted", lambda _: True)
+    payload = {"update_id": 23, "message": {"message_id": 1, "date": 0, "chat": {"id": 9, "type": "private"}, "from": {"id": 7, "is_bot": False, "first_name": "Test", "username": "allowed"}, "text": "/start"}}
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        first = __import__("asyncio").create_task(client.post("/", json=payload))
+        await started.wait()
+        second = await client.post("/", json=payload)
+        release.set()
+        assert (await first).status_code == 200 and second.status_code == 200
+    assert telegram.process_update.await_count == 1
+
+
+@pytest.mark.smoke
+async def test_webhook_background_failure_releases_duplicate_for_retry(monkeypatch):
+    main = _main()
+    telegram = TelegramApplicationFake()
+    telegram.process_update.side_effect = (RuntimeError("temporary"), None)
+    application = main.create_app(telegram_application=telegram)
+    monkeypatch.setattr(main, "is_user_whitelisted", lambda _: True)
+    payload = {"update_id": 24, "message": {"message_id": 1, "date": 0, "chat": {"id": 9, "type": "private"}, "from": {"id": 7, "is_bot": False, "first_name": "Test", "username": "allowed"}, "text": "/start"}}
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        assert (await client.post("/", json=payload)).status_code == 200
+        assert (await client.post("/", json=payload)).status_code == 200
+    assert telegram.process_update.await_count == 2
+
+
+@pytest.mark.smoke
+def test_configured_app_lazily_sets_langsmith_environment(monkeypatch):
+    main = _main()
+    for name in ("LANGSMITH_TRACING", "LANGSMITH_ENDPOINT", "LANGSMITH_PROJECT", "LANGSMITH_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    settings = main.config.Settings("123:ABC", "r1", "r2", "u", "p", "db", "localhost", "5432", "o", "trace-key", "project", "true", "https://smith.example", "expenses")
+    main.create_app(settings, TelegramApplicationFake())
+    assert {name: __import__("os").environ[name] for name in ("LANGSMITH_TRACING", "LANGSMITH_ENDPOINT", "LANGSMITH_PROJECT", "LANGSMITH_API_KEY")} == {
+        "LANGSMITH_TRACING": "true", "LANGSMITH_ENDPOINT": "https://smith.example", "LANGSMITH_PROJECT": "expenses", "LANGSMITH_API_KEY": "trace-key"}
+
+
+@pytest.mark.smoke
 async def test_webhook_rejects_malformed_input_without_detail_leak(monkeypatch):
     main = _main()
 

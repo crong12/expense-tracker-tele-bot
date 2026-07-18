@@ -56,6 +56,8 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
     bot_app = telegram_application
     runtime = None
     processed_updates = OrderedDict()
+    in_flight_updates = set()
+    dedupe_lock = asyncio.Lock()
     handlers_registered = False
 
     def configure(application):
@@ -63,6 +65,7 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
         if supplied_settings is None:
             supplied_settings = config.get_settings()
             application.state.settings = supplied_settings
+        config.configure_langsmith(supplied_settings)
         if runtime is None:
             runtime = _runtime(supplied_settings, persistence=bot_app is None)
         if bot_app is None:
@@ -131,6 +134,7 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
     application.state.telegram_application = bot_app
     application.state.settings = supplied_settings
     application.state.processed_updates = processed_updates
+    application.state.in_flight_updates = in_flight_updates
     application.state.last_update_time = None
     if bot_app is not None:
         configure(application)
@@ -144,6 +148,12 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
                 await configure(application).process_update(update)
         except Exception as exc:
             logging.error("Error processing update %s: %s", update.update_id, exc)
+            async with dedupe_lock:
+                in_flight_updates.discard(update.update_id)
+        else:
+            async with dedupe_lock:
+                in_flight_updates.discard(update.update_id)
+                remember(update.update_id)
 
     def remember(update_id):
         processed_updates[update_id] = None
@@ -167,8 +177,9 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
             raise HTTPException(500, "Unable to process update") from exc
         if not update or update.update_id is None:
             raise HTTPException(400, "Invalid Telegram update")
-        if update.update_id in processed_updates:
-            return {"status": "ok"}
+        async with dedupe_lock:
+            if update.update_id in processed_updates or update.update_id in in_flight_updates:
+                return {"status": "ok"}
         if update.effective_user:
             username = update.effective_user.username
             if not username:
@@ -185,7 +196,10 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
                 await active.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, this bot is currently private and available only to whitelisted users. Please contact the bot owner (@chrxmium) if you need access.")
                 remember(update.update_id)
                 return {"status": "ok"}
-        remember(update.update_id)
+        async with dedupe_lock:
+            if update.update_id in processed_updates or update.update_id in in_flight_updates:
+                return {"status": "ok"}
+            in_flight_updates.add(update.update_id)
         application.state.last_update_time = time.time()
         background_tasks.add_task(process_update, update)
         return {"status": "ok"}

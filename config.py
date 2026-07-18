@@ -31,6 +31,9 @@ class Settings:
     openai_api_key: str
     langsmith_api_key: str
     project_id: str
+    langsmith_tracing: str = ""
+    langsmith_endpoint: str = ""
+    langsmith_project: str = ""
 
 
 _cached_settings = None
@@ -79,7 +82,12 @@ def load_settings(environ=None, *, allow_production_defaults=True) -> Settings:
             raise RuntimeError("Missing required configuration: GOOGLE_CLOUD_PROJECT")
         import google.auth
         _, project_id = google.auth.default()
-    return Settings(*(values[name] for name in _REQUIRED), project_id)
+    return Settings(
+        *(values[name] for name in _REQUIRED), project_id,
+        environ.get("LANGSMITH_TRACING", ""),
+        environ.get("LANGSMITH_ENDPOINT", ""),
+        environ.get("LANGSMITH_PROJECT", ""),
+    )
 
 
 def get_settings() -> Settings:
@@ -90,6 +98,18 @@ def get_settings() -> Settings:
     if _cached_settings is None:
         _cached_settings = load_settings()
     return _cached_settings
+
+
+def configure_langsmith(settings: Settings) -> None:
+    """Lazily expose configured tracing settings without constructing a client."""
+    if (settings.langsmith_tracing.lower() == "true" and settings.langsmith_endpoint
+            and settings.langsmith_project and settings.langsmith_api_key):
+        os.environ.update({
+            "LANGSMITH_TRACING": "true",
+            "LANGSMITH_ENDPOINT": settings.langsmith_endpoint,
+            "LANGSMITH_PROJECT": settings.langsmith_project,
+            "LANGSMITH_API_KEY": settings.langsmith_api_key,
+        })
 
 
 def __getattr__(name):

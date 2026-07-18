@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as SASession, sessionmaker
 
 from database import CategoryRules, Expenses, Users, create_database_engine, create_session_factory
+from services import sql_agent_svc
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -79,27 +80,48 @@ def test_update_changes_only_selected_expense_and_missing_returns_false(db):
     user_id = _user(1401)
     selected = _expense(user_id, description="Before")
     untouched = _expense(user_id, amount="8.00", description="Other")
-    assert expenses_svc.update_expense(selected, Decimal("20.00"), "Travel", "After", date(2026, 7, 2), "USD") == selected
-    assert expenses_svc.update_expense(999999, Decimal("1"), "X", "Missing", date(2026, 1, 1), "GBP") is False
+    assert expenses_svc.update_expense(user_id, selected, Decimal("20.00"), "Travel", "After", date(2026, 7, 2), "USD") == selected
+    assert expenses_svc.update_expense(user_id, 999999, Decimal("1"), "X", "Missing", date(2026, 1, 1), "GBP") is False
     with db() as session:
         assert session.get(Expenses, selected).description == "After"
         assert session.get(Expenses, untouched).description == "Other"
 
 
 def test_exact_matching_returns_expected_id_and_rejects_nonmatch(db):
-    expense_id = _expense(_user(1501), amount="7.50", category="Coffee", description="Flat white", day=date(2026, 7, 3), currency="GBP")
+    user_id = _user(1501)
+    expense_id = _expense(user_id, amount="7.50", category="Coffee", description="Flat white", day=date(2026, 7, 3), currency="GBP")
     text = "Currency: GBP\nAmount: 7.50\nCategory: Coffee\nDescription: Flat white\nDate: 2026-07-03"
-    assert expenses_svc.exact_expense_matching(text) == expense_id
-    assert expenses_svc.exact_expense_matching(text.replace("Flat white", "Tea")) is None
+    assert expenses_svc.exact_expense_matching(user_id, text) == expense_id
+    assert expenses_svc.exact_expense_matching(user_id, text.replace("Flat white", "Tea")) is None
 
 
-def test_exact_matching_rejects_identical_cross_user_matches(db):
+def test_exact_matching_never_returns_another_users_identical_expense(db):
     first, second = _user(1502), _user(1503)
     first_id = _expense(first, amount="7.50", category="Coffee", description="Shared", day=date(2026, 7, 3), currency="GBP")
     second_id = _expense(second, amount="7.50", category="Coffee", description="Shared", day=date(2026, 7, 3), currency="GBP")
     text = "Currency: GBP\nAmount: 7.50\nCategory: Coffee\nDescription: Shared\nDate: 2026-07-03"
-    assert expenses_svc.exact_expense_matching(text) is None
-    assert first_id != second_id
+    assert expenses_svc.exact_expense_matching(first, text) == first_id
+    assert expenses_svc.exact_expense_matching(second, text) == second_id
+
+
+def test_crafted_expense_id_cannot_update_another_users_row(db):
+    owner, attacker = _user(1504), _user(1505)
+    owner_expense = _expense(owner, amount="99.00", description="Private")
+    assert expenses_svc.update_expense(attacker, owner_expense, Decimal("1.00"), "Food", "Forged", date(2026, 7, 4), "GBP") is False
+    with db() as session:
+        assert session.get(Expenses, owner_expense).description == "Private"
+
+
+def test_analytics_tool_scopes_aggregate_and_contradictory_list_to_bound_user(db, monkeypatch):
+    owner, other = _user(1506), _user(1507)
+    _expense(owner, amount="12.00", description="Owner only")
+    _expense(other, amount="99.00", description="Other private")
+    monkeypatch.setattr(sql_agent_svc, "SessionLocal", db)
+    with sql_agent_svc.tenant_context(owner):
+        aggregate = sql_agent_svc.db_query_tool.invoke({"query": "SELECT sum(price) AS total FROM expenses"})
+        contradictory = sql_agent_svc.db_query_tool.invoke({"query": f"SELECT description FROM expenses WHERE user_id = '{other}'"})
+    assert "12.00" in aggregate and "99.00" not in aggregate
+    assert contradictory == "Query executed successfully, but no results were returned."
 
 
 def test_specific_and_bulk_deletion_are_user_isolated(db):
@@ -196,7 +218,7 @@ def test_get_or_create_commit_failure_rolls_back_closes_and_preserves_exception(
     [
         (lambda user, expense: expenses_svc.set_user_preferred_currency(1901, "EUR"), False),
         (lambda user, expense: expenses_svc.insert_expense(user, Decimal("1"), "Food", "Fail", date(2026, 1, 1), "GBP"), None),
-        (lambda user, expense: expenses_svc.update_expense(expense, Decimal("2"), "Food", "Fail", date(2026, 1, 2), "GBP"), False),
+        (lambda user, expense: expenses_svc.update_expense(user, expense, Decimal("2"), "Food", "Fail", date(2026, 1, 2), "GBP"), False),
         (lambda user, expense: expenses_svc.delete_all_expenses(user), False),
         (lambda user, expense: expenses_svc.delete_specific_expense(user, expense), False),
         (lambda user, expense: expenses_svc.insert_category_rule(user, "fail", "Food"), False),
@@ -225,6 +247,7 @@ def test_read_sessions_close_deterministically(db, monkeypatch):
 
 
 def test_exact_matching_closes_session_when_parsing_raises(db, monkeypatch):
+    user_id = _user(1999)
     closes = []
     class TrackingSession(SASession):
         def close(self):
@@ -232,7 +255,7 @@ def test_exact_matching_closes_session_when_parsing_raises(db, monkeypatch):
             super().close()
     monkeypatch.setattr(expenses_svc, "SessionLocal", sessionmaker(bind=db.kw["bind"], class_=TrackingSession))
     with pytest.raises(AttributeError):
-        expenses_svc.exact_expense_matching("malformed")
+        expenses_svc.exact_expense_matching(user_id, "malformed")
     assert closes == [True]
 
 
