@@ -6,11 +6,15 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, Column, UUID, BigInteger, \
     String, Integer, ForeignKey, Numeric, Date, DateTime, Text
 from sqlalchemy.engine import Engine
-if os.environ.get("DATABASE_URL"):
-    DATABASE_URL = os.environ["DATABASE_URL"]
-else:
-    from config import DB_USER, DB_PASSWORD, DB_NAME, DB_HOST, DB_PORT
-    DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+from config import get_settings
+
+def _database_url():
+    if os.environ.get("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+    settings = get_settings()
+    return f"postgresql+psycopg2://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+
+DATABASE_URL = _database_url()
 
 PERSISTENCE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql://", 1)
 
@@ -26,7 +30,14 @@ def create_session_factory(database_engine: Engine) -> sessionmaker:
 
 # create connection engine
 engine = create_database_engine(DATABASE_URL)
-SessionLocal = create_session_factory(engine)
+_session_factories = {DATABASE_URL: create_session_factory(engine)}
+
+def SessionLocal():
+    url = _database_url()
+    if url not in _session_factories:
+        _session_factories[url] = create_session_factory(create_database_engine(url))
+    return _session_factories[url]()
+
 Session = SessionLocal
 
 # define tables (as ORM classes)

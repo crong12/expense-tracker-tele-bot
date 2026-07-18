@@ -12,3 +12,15 @@ def test_explicit_project_is_used_for_missing_secrets_without_adc_project_lookup
     project, values = config._production_secrets(["DB_PASSWORD"], project_id="explicit-project")
     assert project == "explicit-project" and values == {"DB_PASSWORD": "value"}
     assert requests == [{"name": "projects/explicit-project/secrets/DB_PASSWORD/versions/latest"}]
+
+
+def test_database_url_dispatches_by_scoped_settings_without_explicit_environment(monkeypatch):
+    import database
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    values = ["t", "r", "r", "a", "p", "d", "h", "1", "o", "l", "x"]
+    a = config.Settings(*values)
+    values[3] = "b"
+    b = config.Settings(*values)
+    with config.settings_context(a): first = database._database_url()
+    with config.settings_context(b): second = database._database_url()
+    assert first != second and "://a:" in first and "://b:" in second
