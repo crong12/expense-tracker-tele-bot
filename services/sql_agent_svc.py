@@ -63,6 +63,9 @@ def _uses_only_expenses_relation(query: str) -> bool:
     masked = _mask_sql_literals_and_comments(query)
     if not masked or re.match(r"^\s*WITH\b", masked, flags=re.IGNORECASE):
         return False
+    identifier = r'(?:[A-Za-z_][A-Za-z0-9_]*|"(?:[^"]|"")+")'
+    if re.search(rf"\bFROM\s+{identifier}(?:\s*\.\s*{identifier})?(?:\s+(?:AS\s+)?[A-Za-z_][A-Za-z0-9_]*)?\s*,", masked, flags=re.IGNORECASE):
+        return False
     relations = re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)?)", masked, flags=re.IGNORECASE)
     if not relations:
         return bool(re.match(r"^\s*SELECT\s+(?:\d+|NULL|TRUE|FALSE)(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?(?:\s+WHERE\s+(?:TRUE|FALSE))?\s*$", masked, flags=re.IGNORECASE))

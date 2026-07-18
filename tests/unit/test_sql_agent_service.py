@@ -138,6 +138,7 @@ def test_query_requires_authenticated_tenant_context(sql_agent):
 @pytest.mark.parametrize("sql", [
     "SELECT * FROM users", "SELECT * FROM public.expenses", "SELECT * FROM generate_series(1, 2)",
     "SELECT pg_read_file('postgresql.conf')", "SELECT current_setting('data_directory')",
+    'SELECT * FROM expenses, users', 'SELECT * FROM expenses, "public"."users"',
 ])
 def test_tenant_tool_rejects_non_expense_and_relation_free_bypasses(sql_agent, sql):
     calls = []
