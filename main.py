@@ -52,6 +52,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def create_app(settings: Settings | None = None, telegram_application=None) -> FastAPI:
+    should_upgrade_database = telegram_application is None
     supplied_settings = settings
     bot_app = telegram_application
     runtime = None
@@ -105,6 +106,9 @@ def create_app(settings: Settings | None = None, telegram_application=None) -> F
     @asynccontextmanager
     async def lifespan(application):
         active = configure(application)
+        if should_upgrade_database:
+            from database import upgrade_expenses_schema
+            await asyncio.to_thread(upgrade_expenses_schema)
         await active.initialize()
         await active.start()
         async def periodic_flush():

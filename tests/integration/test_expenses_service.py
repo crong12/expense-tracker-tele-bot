@@ -76,6 +76,16 @@ def test_insert_stores_all_fields_for_the_selected_user(db):
         )
 
 
+def test_insert_is_idempotent_per_user_and_telegram_update_id(db):
+    user_id = _user(1302)
+    first = expenses_svc.insert_expense(user_id, Decimal("19.95"), "Travel", "Train", date(2026, 6, 30), "EUR", telegram_update_id=9001)
+    second = expenses_svc.insert_expense(user_id, Decimal("19.95"), "Travel", "Train", date(2026, 6, 30), "EUR", telegram_update_id=9001)
+    other = expenses_svc.insert_expense(user_id, Decimal("19.95"), "Travel", "Train", date(2026, 6, 30), "EUR", telegram_update_id=9002)
+    with db() as session:
+        assert first == second and other != first
+        assert session.query(Expenses).filter(Expenses.user_id == user_id).count() == 2
+
+
 def test_update_changes_only_selected_expense_and_missing_returns_false(db):
     user_id = _user(1401)
     selected = _expense(user_id, description="Before")

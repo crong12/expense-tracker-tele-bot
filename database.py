@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, Column, UUID, BigInteger, \
-    String, Integer, ForeignKey, Numeric, Date, DateTime, Text
+    String, Integer, ForeignKey, Numeric, Date, DateTime, Text, UniqueConstraint, text
 from sqlalchemy.engine import Engine
 from config import get_settings
 
@@ -60,6 +60,18 @@ class Expenses(Base):
     description = Column(String, nullable=False)
     date = Column(Date, nullable=False)
     currency = Column(String, nullable=False)
+    telegram_update_id = Column(BigInteger, nullable=True)
+    __table_args__ = (UniqueConstraint("user_id", "telegram_update_id", name="uq_expenses_user_telegram_update"),)
+
+
+def upgrade_expenses_schema(database_engine=None) -> None:
+    """Idempotently upgrade existing PostgreSQL expense tables at runtime startup."""
+    database_engine = engine if database_engine is None else database_engine
+    if database_engine.dialect.name != "postgresql":
+        return
+    with database_engine.begin() as connection:
+        connection.execute(text("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS telegram_update_id BIGINT"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_expenses_user_telegram_update ON expenses (user_id, telegram_update_id)"))
 
 class CategoryRules(Base):
     """Per-user keyword-to-category mapping rules"""

@@ -385,4 +385,4 @@ async def test_expense_component_journey_normalizes_and_writes_once(monkeypatch)
     assert await expenses_handler.process_insert(scenario.update, scenario.context) == 1
     scenario.callback_query.data = "confirmation"
     assert await expenses_handler.handle_confirmation(scenario.update, scenario.context) == 0
-    insert.assert_called_once_with(user_id=user_id, price=12.5, category="Dining", description="Lunch", date="2026-07-18", currency="GBP")
+    insert.assert_called_once_with(user_id=user_id, price=12.5, category="Dining", description="Lunch", date="2026-07-18", currency="GBP", telegram_update_id=None)

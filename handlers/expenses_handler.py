@@ -180,7 +180,8 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                     category=parsed_expense['category'],
                     description=parsed_expense['description'],
                     date=parsed_expense['date'],
-                    currency=parsed_expense['currency']
+                    currency=parsed_expense['currency'],
+                    telegram_update_id=getattr(update, "update_id", None),
                 )
                 if not expense_id:
                     _clear_expense_context(context.user_data)

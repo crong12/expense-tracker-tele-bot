@@ -3,6 +3,7 @@ import re
 import logging
 from datetime import date, datetime
 from sqlalchemy import select, extract
+from sqlalchemy.exc import IntegrityError
 from database import SessionLocal, Users, Expenses, CategoryRules
 
 def get_or_create_user(telegram_id):
@@ -70,7 +71,7 @@ def get_categories(user_id):
     finally:
         session.close()
 
-def insert_expense(user_id, price, category, description, date, currency):
+def insert_expense(user_id, price, category, description, date, currency, telegram_update_id=None):
     """Inserts a new expense record into the database"""
     session = SessionLocal()
 
@@ -81,7 +82,8 @@ def insert_expense(user_id, price, category, description, date, currency):
             category=category,
             description=description,
             date=date,
-            currency=currency
+            currency=currency,
+            telegram_update_id=telegram_update_id,
         )
         session.add(new_expense)
         session.commit()
@@ -186,6 +188,16 @@ def export_expenses_to_csv(
 
         return file_path  # Return the generated file path
 
+    except IntegrityError as error:
+        session.rollback()
+        if telegram_update_id is not None:
+            existing = session.query(Expenses).filter(
+                Expenses.user_id == user_id,
+                Expenses.telegram_update_id == telegram_update_id,
+            ).first()
+            if existing:
+                return existing.id
+        print("Error inserting expense: %s", str(error))
     except Exception as e:  # pylint: disable=broad-except
         print("Error exporting expenses: %s", str(e))
         return None
