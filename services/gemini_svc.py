@@ -52,7 +52,7 @@ def _should_retry_gemini_error(error: Exception) -> bool:
     return (
         isinstance(error, genai_errors.APIError)
         and error.code is not None
-        and (error.code == 429 or error.code >= 500)
+        and (error.code == 429 or 500 <= error.code < 600)
     )
 
 

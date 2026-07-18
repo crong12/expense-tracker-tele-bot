@@ -216,7 +216,7 @@ async def test_text_reraises_final_sdk_exception_after_three_attempts(gemini_ser
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [
-    gemini_api_error(400), ValueError("invalid"), TypeError("bug"), RuntimeError("bug"),
+    gemini_api_error(400), gemini_api_error(600), ValueError("invalid"), TypeError("bug"), RuntimeError("bug"),
     asyncio.CancelledError(), KeyboardInterrupt(), SystemExit(),
 ])
 async def test_non_transient_and_process_control_errors_are_not_retried(gemini_service, error):
