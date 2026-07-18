@@ -52,10 +52,19 @@ def _mask_sql_literals_and_comments(query: str) -> str:
             erase(index, length if end == -1 else end)
             index = length if end == -1 else end
         elif query.startswith("/*", index):
-            end = query.find("*/", index + 2)
-            if end == -1:
+            end = index + 2
+            depth = 1
+            while end < length and depth:
+                if query.startswith("/*", end):
+                    depth += 1
+                    end += 2
+                elif query.startswith("*/", end):
+                    depth -= 1
+                    end += 2
+                else:
+                    end += 1
+            if depth:
                 return ""
-            end += 2
             erase(index, end)
             index = end
         elif query[index] in "'\"":
@@ -63,6 +72,9 @@ def _mask_sql_literals_and_comments(query: str) -> str:
             end = index + 1
             closed = False
             while end < length:
+                if quote == "'" and query[end] == "\\":
+                    end += 2
+                    continue
                 if query[end] == quote:
                     if end + 1 < length and query[end + 1] == quote:
                         end += 2
@@ -92,6 +104,24 @@ def _mask_sql_literals_and_comments(query: str) -> str:
     return "".join(masked)
 
 
+def _with_resolves_to_select(statement: str) -> bool:
+    """Require a CTE's outer query form to be SELECT, not VALUES or TABLE."""
+    depth = 0
+    saw_cte_close = False
+    for match in re.finditer(r"\(|\)|[A-Za-z_][A-Za-z0-9_]*", statement):
+        token = match.group(0).upper()
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            if depth == 0:
+                return False
+            depth -= 1
+            saw_cte_close = saw_cte_close or depth == 0
+        elif saw_cte_close and depth == 0 and token in {"SELECT", "VALUES", "TABLE"}:
+            return token == "SELECT"
+    return False
+
+
 def _is_read_only_query(query: str) -> bool:
     """Conservatively allow one non-locking SELECT statement only."""
     if not isinstance(query, str) or not query.strip():
@@ -102,7 +132,10 @@ def _is_read_only_query(query: str) -> bool:
         statement = statement[:-1].rstrip()
     if not statement or ";" in statement:
         return False
-    if not re.match(r"^(SELECT|WITH)\b", statement, flags=re.IGNORECASE):
+    opening = re.match(r"^(SELECT|WITH)\b", statement, flags=re.IGNORECASE)
+    if not opening:
+        return False
+    if opening.group(1).upper() == "WITH" and not _with_resolves_to_select(statement):
         return False
     forbidden = (
         "INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE",
@@ -111,9 +144,9 @@ def _is_read_only_query(query: str) -> bool:
     )
     if any(re.search(rf"\b{word}\b", statement, flags=re.IGNORECASE) for word in forbidden):
         return False
-    if re.search(r"\bFOR\s+(UPDATE|SHARE)\b|\bSELECT\b[\s\S]*?\bINTO\b", statement, re.IGNORECASE):
+    if re.search(r"\bFOR\s+(?:UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b|\bSELECT\b[\s\S]*?\bINTO\b", statement, re.IGNORECASE):
         return False
-    side_effect_functions = "nextval|setval|pg_sleep|pg_terminate_backend|pg_cancel_backend"
+    side_effect_functions = "nextval|setval|pg_sleep|pg_terminate_backend|pg_cancel_backend|pg_advisory_[A-Za-z0-9_]*|pg_notify"
     return not bool(re.search(rf"\b(?:{side_effect_functions})\s*\(", statement, re.IGNORECASE))
 
 @tool
@@ -138,13 +171,19 @@ def db_query_tool(query: str) -> str:
         return "Query executed successfully, but no results were returned."
     except Exception as e:
         if session is not None:
-            session.rollback()
+            try:
+                session.rollback()
+            except Exception as cleanup_error:
+                print(f"Database cleanup error: {cleanup_error}")
         error_message = f"Database error: {e}"
         print(error_message)
         return error_message
     finally:
         if session is not None:
-            session.close()
+            try:
+                session.close()
+            except Exception as cleanup_error:
+                print(f"Database cleanup error: {cleanup_error}")
 
 class SubmitFinalAnswer(BaseModel):
     """Submit the final answer to the user based on the query results."""

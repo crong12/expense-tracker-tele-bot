@@ -83,6 +83,21 @@ def test_read_only_validator_rejects_mutations_and_multiple_statements(sql_agent
     assert sql_agent._is_read_only_query(sql) is False
 
 
+@pytest.mark.parametrize("sql", [
+    "SELECT 1 /* outer /* inner */ still-comment",
+    r"SELECT E'unterminated escape\' harmless",
+    "SELECT 1 FOR NO KEY UPDATE",
+    "SELECT 1 FOR KEY SHARE",
+    "SELECT pg_advisory_lock(1)",
+    "SELECT pg_advisory_xact_lock(1)",
+    "SELECT pg_notify('channel', 'payload')",
+    "WITH item AS (SELECT 1) VALUES (1)",
+    "WITH item AS (SELECT 1) TABLE item",
+])
+def test_read_only_validator_rejects_nested_or_escape_ambiguity_and_other_side_effects(sql_agent, sql):
+    assert sql_agent._is_read_only_query(sql) is False
+
+
 def test_rejected_query_never_constructs_a_session(sql_agent):
     calls = 0
     def fail_session():
@@ -126,6 +141,20 @@ def test_query_exception_rolls_back_and_closes_once(sql_agent):
     sql_agent.SessionLocal = lambda: session
     assert query(sql_agent, "SELECT 1") == "Database error: broken"
     assert rolled_back == [True] and closed == [True]
+
+
+def test_cleanup_exceptions_do_not_replace_database_error_or_success_response(sql_agent):
+    failing = SimpleNamespace(execute=lambda _: (_ for _ in ()).throw(RuntimeError("broken")))
+    failing.rollback = lambda: (_ for _ in ()).throw(RuntimeError("rollback failed"))
+    failing.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
+    sql_agent.SessionLocal = lambda: failing
+    assert query(sql_agent, "SELECT 1") == "Database error: broken"
+
+    successful = SimpleNamespace(execute=lambda _: SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [])))
+    successful.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
+    successful.rollback = lambda: None
+    sql_agent.SessionLocal = lambda: successful
+    assert query(sql_agent, "SELECT 1") == "Query executed successfully, but no results were returned."
 
 
 def test_session_construction_error_returns_database_error(sql_agent):
