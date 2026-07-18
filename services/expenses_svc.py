@@ -188,16 +188,6 @@ def export_expenses_to_csv(
 
         return file_path  # Return the generated file path
 
-    except IntegrityError as error:
-        session.rollback()
-        if telegram_update_id is not None:
-            existing = session.query(Expenses).filter(
-                Expenses.user_id == user_id,
-                Expenses.telegram_update_id == telegram_update_id,
-            ).first()
-            if existing:
-                return existing.id
-        print("Error inserting expense: %s", str(error))
     except Exception as e:  # pylint: disable=broad-except
         print("Error exporting expenses: %s", str(e))
         return None
@@ -244,6 +234,16 @@ def delete_all_expenses(user_id):
         session.commit()
         return True
 
+    except IntegrityError as error:
+        session.rollback()
+        if telegram_update_id is not None:
+            existing = session.query(Expenses).filter(
+                Expenses.user_id == user_id,
+                Expenses.telegram_update_id == telegram_update_id,
+            ).first()
+            if existing:
+                return existing.id
+        print("Error inserting expense: %s", str(error))
     except Exception as e:  # pylint: disable=broad-except
         session.rollback()
         print("Error exporting expenses: %s", str(e))

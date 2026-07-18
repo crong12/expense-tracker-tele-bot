@@ -211,7 +211,7 @@ async def test_confirmation_inserts_normalized_expense_and_prompts_for_next(monk
     result = await expenses_handler.handle_confirmation(scenario.update, scenario.context)
 
     assert result == WAITING_FOR_EXPENSE
-    insert.assert_called_once_with(user_id="user-1", **EXPENSE)
+    insert.assert_called_once_with(user_id="user-1", telegram_update_id=None, **EXPENSE)
     assert scenario.context.user_data["unrelated"] == "keep"
     assert any("recorded successfully" in call.args[1] for call in scenario.bot.send_message.await_args_list)
 
