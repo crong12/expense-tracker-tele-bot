@@ -1,21 +1,5 @@
 <a id="readme-top"></a>
 
-## Tests
-
-Install test dependencies with `python -m pip install -r requirements-test.txt`.
-
-| Purpose | Command |
-| --- | --- |
-| Fast (no database/live tests) | `python -m pytest -m "not integration and not live" -q` |
-| Smoke application checks | `python -m pytest -m smoke -q` |
-| PostgreSQL integration | `python -m pytest -m integration -q` |
-| Full required non-live suite | `python -m pytest -m "not live" -q` |
-| Branch coverage | `python -m pytest -m "not live" --cov --cov-branch --cov-report=term-missing -q` |
-
-Start disposable PostgreSQL 16 with `docker run --rm -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=expense_test postgres:16`, then set `TEST_DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/expense_test` (and `DATABASE_URL` to the same value when running the whole suite). PowerShell example: `$env:TEST_DATABASE_URL='postgresql+psycopg2://postgres:postgres@localhost:5432/expense_test'`.
-
-Markers are `unit` (isolated behavior), `smoke` (critical wiring), `integration` (real PostgreSQL), and `live` (explicitly permitted external systems). Sockets are denied by default, so tests must use injected boundaries rather than vendor services. Shared Telegram doubles live in `tests/fakes/telegram.py`. Live tests are optional and excluded from all required CI jobs.
-
 
 <!-- PROJECT HEADER -->
 <br />
@@ -381,6 +365,8 @@ I know it's not perfect &ndash; there are definitely loads of things I can impro
 ## Contributing
 
 As this is my first foray into working with LLMs and dev work, any contributions are greatly appreciated.
+
+See [TESTING.md](TESTING.md) for the local test commands, PostgreSQL setup, markers, and network-isolation policy.
 
 If you have a suggestion to improve the bot, be it functionality or even best practice advice, please fork the repo and create a pull request. You can also simply open an issue with the tag "enhancement".
 
